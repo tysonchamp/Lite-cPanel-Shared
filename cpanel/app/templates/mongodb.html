@@ -1,0 +1,248 @@
+{% extends 'base.html' %}
+
+{% block header_title %}MongoDB Manager{% endblock %}
+
+{% block content %}
+{% if not is_installed %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0 border-start border-warning border-4">
+            <div class="card-body">
+                <h4 class="card-title text-warning"><i class="fas fa-exclamation-triangle me-2"></i> MongoDB is not installed</h4>
+                <p class="card-text">MongoDB is an optional database engine and is currently not installed on this system.</p>
+                
+                <form method="POST" action="{{ url_for('mongodb_route') }}" id="installMongoForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="install">
+                    <button type="submit" class="btn btn-primary" id="installMongoBtn">
+                        <i class="fas fa-download me-2"></i> Install MongoDB Now
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    document.getElementById('installMongoForm').addEventListener('submit', function() {
+        var btn = document.getElementById('installMongoBtn');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Installing... Please wait';
+        btn.disabled = true;
+    });
+</script>
+{% else %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Create MongoDB Database & User</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('mongodb_route') }}" class="row g-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="create">
+                    
+                    <div class="col-md-3">
+                        <label class="form-label">Database Name</label>
+                        <input type="text" class="form-control" name="db_name" required pattern="[a-zA-Z0-9_]+" title="Alphanumeric and underscores only">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-control" name="db_user" required pattern="[a-zA-Z0-9_]+" title="Alphanumeric and underscores only">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Password</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="db_pass" id="newDbPass" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="generateMongoPass()"><i class="fas fa-random"></i></button>
+                        </div>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-plus me-2"></i> Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Mongo Express Section -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-tools me-2 text-info"></i> Mongo Express <small class="text-muted">(Web Admin UI)</small></h5>
+                <div class="d-flex gap-2 align-items-center">
+                    {% if me_status == 'active' %}
+                        <span class="badge bg-success"><i class="fas fa-circle me-1"></i> Running</span>
+                    {% elif me_status == 'inactive' or me_status == 'failed' %}
+                        <span class="badge bg-danger"><i class="fas fa-circle me-1"></i> Stopped</span>
+                    {% else %}
+                        <span class="badge bg-secondary"><i class="fas fa-circle me-1"></i> Not Installed</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                {% if me_status == 'not_installed' %}
+                    <p class="text-muted mb-3">Mongo Express is a web-based MongoDB admin interface, similar to phpMyAdmin for MySQL. Install it to browse, edit, and manage your MongoDB data visually.</p>
+                    <form method="POST" action="{{ url_for('mongodb_route') }}" id="installExpressForm">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="install_express">
+                        <button type="submit" class="btn btn-info text-white" id="installExpressBtn">
+                            <i class="fas fa-download me-2"></i> Install Mongo Express
+                        </button>
+                    </form>
+                    <script>
+                        document.getElementById('installExpressForm').addEventListener('submit', function() {
+                            var btn = document.getElementById('installExpressBtn');
+                            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Installing via npm... Please wait';
+                            btn.disabled = true;
+                        });
+                    </script>
+                {% elif me_status == 'active' %}
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <p class="mb-1"><strong>URL:</strong> <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express', '_blank')" class="text-decoration-none">/mongo-express</a></p>
+                            {% if me_creds %}
+                            <p class="mb-1"><strong>Username:</strong> <code>{{ me_creds.username }}</code></p>
+                            <p class="mb-0"><strong>Password:</strong>
+                                <code id="mePassText" style="filter: blur(4px); cursor: pointer;" onclick="this.style.filter = this.style.filter ? '' : 'blur(4px)'">{{ me_creds.password }}</code>
+                                <button class="btn btn-sm btn-outline-secondary ms-1" onclick="navigator.clipboard.writeText('{{ me_creds.password }}')"><i class="fas fa-copy"></i></button>
+                            </p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                            <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express', '_blank')" class="btn btn-success me-2">
+                                <i class="fas fa-external-link-alt me-1"></i> Open Mongo Express
+                            </a>
+                            <form method="POST" action="{{ url_for('mongodb_route') }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="restart_express">
+                                <button type="submit" class="btn btn-outline-warning"><i class="fas fa-sync me-1"></i> Restart</button>
+                            </form>
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="text-muted mb-3">Mongo Express is installed but not running.</p>
+                    <form method="POST" action="{{ url_for('mongodb_route') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="restart_express">
+                        <button type="submit" class="btn btn-warning"><i class="fas fa-play me-1"></i> Start Mongo Express</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Existing MongoDB Databases</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Database Name</th>
+                                <th>Size</th>
+                                <th>Users</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for db in db_details %}
+                            <tr>
+                                <td class="align-middle fw-bold"><i class="fas fa-database text-success me-2"></i>{{ db.name }}</td>
+                                <td class="align-middle">{{ db.size_mb }} MB</td>
+                                <td class="align-middle">
+                                    {% if db.users %}
+                                        {% for u in db.users %}
+                                            <div class="badge bg-secondary mb-1">
+                                                <i class="fas fa-user me-1"></i> {{ u.User }}
+                                            </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted small">No users</span>
+                                    {% endif %}
+                                </td>
+                                <td class="align-middle">
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#changePassModal{{ loop.index }}" {% if not db.users %}disabled{% endif %}>
+                                            <i class="fas fa-key"></i> Password
+                                        </button>
+                                        <form method="POST" action="{{ url_for('mongodb_route') }}" class="mb-0" onsubmit="return confirm('WARNING: This will permanently delete the database {{ db.name }} and all its data. Are you sure?');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="db_name" value="{{ db.name }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i> Drop</button>
+                                        </form>
+                                    </div>
+                                    
+                                    <!-- Change Password Modal -->
+                                    {% if db.users %}
+                                    <div class="modal fade" id="changePassModal{{ loop.index }}" tabindex="-1">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Change Password for User</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <form method="POST" action="{{ url_for('mongodb_route') }}">
+                                                    <div class="modal-body">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                        <input type="hidden" name="action" value="change_password">
+                                                        <input type="hidden" name="db_name" value="{{ db.name }}">
+                                                        
+                                                        <div class="mb-3">
+                                                            <label class="form-label">Select User</label>
+                                                            <select class="form-select" name="db_user" required>
+                                                                {% for u in db.users %}
+                                                                <option value="{{ u.User }}">{{ u.User }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label">New Password</label>
+                                                            <input type="text" class="form-control" name="new_password" required minlength="8">
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                        <button type="submit" class="btn btn-primary">Update Password</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">No MongoDB databases found.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function generateMongoPass() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+';
+    let pass = '';
+    for (let i = 0; i < 16; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('newDbPass').value = pass;
+}
+// Generate one on load
+generateMongoPass();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Edit Configuration{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Editing: <span class="text-primary font-monospace" style="font-size: 1rem;">{{ filepath }}</span></h5>
+                <a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i> {{ back_label }}</a>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ save_url | default(url_for('settings')) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <input type="hidden" name="action" value="save_config">
+                    <input type="hidden" name="filepath" value="{{ filepath }}">
+
+                    <div class="mb-3">
+                        <textarea class="form-control font-monospace" name="content" rows="25" style="font-size: 0.85rem; background-color: #f8f9fa;" spellcheck="false">{{ content }}</textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i> Save Changes</button>
+                    <small class="text-muted ms-2">Saving will attempt to automatically restart the associated service.</small>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

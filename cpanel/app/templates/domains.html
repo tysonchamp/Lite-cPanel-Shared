@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Domains{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Add New Domain</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('domains') }}" class="d-flex align-items-center gap-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <input type="hidden" name="action" value="add">
+                    <input type="text" class="form-control" name="domain" placeholder="example.com" required>
+                    <button type="submit" class="btn btn-primary text-nowrap"><i class="fas fa-plus me-2"></i> Create Virtual Host</button>
+                </form>
+                <small class="text-muted mt-2 d-block">This will run the setup script to configure the web server and create document roots.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Existing Virtual Hosts</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Domain</th>
+                                <th>Status</th>
+                                <th>SSL</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vhost in vhosts %}
+                            <tr>
+                                <td class="align-middle fw-bold">
+                                    {{ vhost.domain }}<br>
+                                    <small class="text-muted">
+                                        {% for srv in vhost.servers %}
+                                            <span class="badge bg-secondary">{{ srv }}</span>
+                                        {% endfor %}
+                                    </small>
+                                </td>
+                                <td class="align-middle">
+                                    {% if vhost.enabled %}
+                                    <span class="badge bg-success">Enabled</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">Disabled</span>
+                                    {% endif %}
+                                </td>
+                                <td class="align-middle">
+                                    {% if vhost.has_ssl %}
+                                    <span class="badge bg-success"><i class="fas fa-lock"></i> Secured</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark"><i class="fas fa-unlock"></i> Unsecured</span>
+                                    {% endif %}
+                                </td>
+                                <td class="align-middle">
+                                    <div class="d-flex align-items-center gap-1">
+                                        <!-- Toggle Form -->
+                                        <form method="POST" action="{{ url_for('domains') }}" class="mb-0">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="toggle">
+                                            <input type="hidden" name="domain" value="{{ vhost.domain }}">
+                                            {% if vhost.enabled %}
+                                            <input type="hidden" name="enable" value="false">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Disable"><i class="fas fa-power-off"></i></button>
+                                            {% else %}
+                                            <input type="hidden" name="enable" value="true">
+                                            <button type="submit" class="btn btn-sm btn-outline-success" title="Enable"><i class="fas fa-play"></i></button>
+                                            {% endif %}
+                                        </form>
+
+                                        <!-- Logs -->
+                                        <a href="{{ url_for('domain_logs', domain=vhost.domain) }}" class="btn btn-sm btn-outline-info" title="Logs"><i class="fas fa-file-alt"></i></a>
+
+                                        <!-- Edit Configs -->
+                                        {% for server, path in vhost.config_paths.items() %}
+                                        <a href="{{ url_for('edit_vhost', filepath=path) }}" class="btn btn-sm btn-outline-secondary" title="Edit {{ server }} Config">
+                                            <i class="fas fa-edit"></i>
+                                            <small style="font-size: 0.6rem; vertical-align: top;">{{ server[0] }}</small>
+                                        </a>
+                                        {% endfor %}
+
+                                        <!-- SSL Actions -->
+                                        <form method="POST" action="{{ url_for('domains') }}" class="mb-0">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="domain" value="{{ vhost.domain }}">
+                                            <input type="hidden" name="servers" value="{{ vhost.servers|join(',') }}">
+                                            {% if vhost.has_ssl %}
+                                            <input type="hidden" name="action" value="ssl_renew">
+                                            <button type="submit" class="btn btn-sm btn-outline-primary" title="Renew SSL"><i class="fas fa-sync"></i></button>
+                                            {% else %}
+                                            <input type="hidden" name="action" value="ssl_generate">
+                                            <button type="submit" class="btn btn-sm btn-outline-primary" title="Generate SSL"><i class="fas fa-shield-alt"></i></button>
+                                            {% endif %}
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">No virtual hosts found.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+cpanel/venv/
+__pycache__/
+*.pyc
+.env
+cookies.txt
+token.txt

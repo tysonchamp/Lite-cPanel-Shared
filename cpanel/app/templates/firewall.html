@@ -1,0 +1,450 @@
+{% extends 'base.html' %}
+{% block header_title %}Firewall Management (CSF){% endblock %}
+
+{% block content %}
+
+<!-- ══════════════ CSF FIREWALL ══════════════ -->
+{% if csf_installed %}
+
+<!-- Header bar -->
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0"><i class="fas fa-shield-virus text-primary me-2"></i>CSF — ConfigServer Security &amp; Firewall
+    </h4>
+    <div class="d-flex align-items-center gap-2">
+        <span class="badge fs-6 {% if csf_status == 'Running' %}bg-success{% else %}bg-danger{% endif %}">
+            <i class="fas fa-circle me-1" style="font-size:.6rem;"></i>{{ csf_status }}
+        </span>
+        <!-- Service controls -->
+        <form method="POST" action="{{ url_for('firewall') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button name="action" value="start" class="btn btn-sm btn-outline-success">Start</button>
+            <button name="action" value="stop" class="btn btn-sm btn-outline-danger">Stop</button>
+            <button name="action" value="restart" class="btn btn-sm btn-outline-primary">Restart</button>
+        </form>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <!-- Quick Allow / Deny -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white border-bottom fw-semibold"><i
+                    class="fas fa-bolt me-2 text-warning"></i>Quick IP Management</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('firewall') }}" class="input-group mb-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="text" class="form-control" name="ip"
+                        placeholder="IP Address or CIDR (e.g. 1.2.3.4 or 1.2.3.0/24)" required>
+                    <button name="action" value="allow_ip" class="btn btn-success">Allow</button>
+                    <button name="action" value="deny_ip" class="btn btn-danger">Deny</button>
+                </form>
+                <form method="POST" action="{{ url_for('firewall') }}" class="input-group">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="text" class="form-control" name="ip" placeholder="IP Address to Remove" required>
+                    <button name="action" value="unallow_ip" class="btn btn-outline-success">Un-Allow</button>
+                    <button name="action" value="undeny_ip" class="btn btn-outline-danger">Un-Deny</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Open Ports -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white border-bottom fw-semibold"><i class="fas fa-plug me-2 text-info"></i>Open
+                Ports</div>
+            <div class="card-body p-2">
+                {% for direction in ['TCP_IN', 'TCP_OUT', 'UDP_IN', 'UDP_OUT'] %}
+                {% if csf_ports.get(direction) %}
+                <div class="mb-2">
+                    <span class="badge bg-dark mb-1">{{ direction }}</span>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% for port in csf_ports[direction] %}
+                        <span class="badge bg-secondary font-monospace">{{ port }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSF Config Key Editor -->
+{% if csf_conf_settings %}
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white border-bottom fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-sliders-h me-2 text-primary"></i>CSF Configuration Settings</span>
+        <input type="text" id="confSearch" class="form-control form-control-sm w-auto" placeholder="Search setting…"
+            oninput="filterConf(this.value)">
+    </div>
+    <div class="card-body p-0" style="max-height:500px; overflow-y:auto;">
+        <table class="table table-sm table-hover mb-0 align-middle" id="confTable">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <th>Setting</th>
+                    <th>Value</th>
+                    <th>Description</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in csf_conf_settings %}
+                <tr class="conf-row" data-key="{{ s.key|lower }}">
+                    <td class="font-monospace fw-semibold text-nowrap">{{ s.key }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('firewall') }}" class="d-flex gap-1 mb-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="save_csf_conf_key">
+                            <input type="hidden" name="conf_key" value="{{ s.key }}">
+                            <input type="text" name="conf_value" value="{{ s.value }}"
+                                class="form-control form-control-sm font-monospace"
+                                style="min-width:80px; max-width:280px;">
+                            <button type="submit" class="btn btn-sm btn-outline-primary px-2" title="Save"><i
+                                    class="fas fa-check"></i></button>
+                        </form>
+                    </td>
+                    <td class="text-muted small">{{ s.comment }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Temporary Entries Table -->
+<!-- 1. Temporary Entries (Orange) -->
+<div class="card shadow-sm border-0 mb-4 overflow-hidden">
+    <div class="card-header bg-warning text-dark border-bottom fw-bold d-flex justify-content-between align-items-center"
+        style="background-color: #f39c12 !important; color: white !important;">
+        <span><i class="fas fa-clock me-2"></i>Temporary Allow and Deny IP entries</span>
+        <div class="d-flex align-items-center">
+            <small class="me-3 opacity-75">{{ csf_temp|length }} entries</small>
+            <button class="btn btn-xs btn-light text-dark fw-bold py-0" data-bs-toggle="modal"
+                data-bs-target="#tempActionModal" style="font-size: 0.75rem;">Add an entry</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size: 0.85rem;">
+                <thead class="bg-light text-muted">
+                    <tr>
+                        <th class="ps-3">Type</th>
+                        <th>IP</th>
+                        <th>Port(s)</th>
+                        <th>Direction</th>
+                        <th>Time to live</th>
+                        <th>Comment</th>
+                        <th class="text-end pe-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in csf_temp %}
+                    <tr>
+                        <td class="ps-3">
+                            <span
+                                class="badge {% if e.type|upper == 'ALLOW' %}bg-success{% else %}bg-danger{% endif %}">{{
+                                e.type }}</span>
+                        </td>
+                        <td class="fw-bold font-monospace">{{ e.ip }}</td>
+                        <td>{{ e.ports or '*' }}</td>
+                        <td>{{ e.direction or 'INOUT' }}</td>
+                        <td>{{ e.ttl }}</td>
+                        <td class="text-muted small">{{ e.comment }}</td>
+                        <td class="text-end pe-3">
+                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="remove_rule">
+                                <input type="hidden" name="file_type" value="{{ e.type.lower() }}">
+                                <input type="hidden" name="rule_raw" value="{{ e.ip }}">
+                                <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-2"
+                                    style="font-size: 0.7rem;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">No temporary entries.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Whitelist (Green) -->
+<div class="card shadow-sm border-0 mb-4 overflow-hidden">
+    <div class="card-header bg-success text-white border-bottom fw-bold d-flex justify-content-between align-items-center"
+        style="background-color: #27ae60 !important;">
+        <span><i class="fas fa-check-circle me-2"></i>Whitelist configuration (csf.allow)</span>
+        <div class="d-flex align-items-center">
+            <small class="me-3 opacity-75">{{ parsed_allow|length }} entries</small>
+            <button class="btn btn-xs btn-light text-success fw-bold py-0" data-bs-toggle="modal"
+                data-bs-target="#allowActionModal" style="font-size: 0.75rem;">Add an entry</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size: 0.85rem;">
+                <thead class="bg-light text-muted">
+                    <tr>
+                        <th class="ps-3">IP or Rule</th>
+                        <th>Comment</th>
+                        <th class="text-end pe-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in parsed_allow %}
+                    <tr>
+                        <td class="ps-3 fw-bold font-monospace">{{ entry.rule }}</td>
+                        <td class="text-muted small">{{ entry.comment }}</td>
+                        <td class="text-end pe-3">
+                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0"
+                                onsubmit="return confirm('Delete this rule from whitelist?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="remove_rule">
+                                <input type="hidden" name="file_type" value="allow">
+                                <input type="hidden" name="rule_raw" value="{{ entry.raw }}">
+                                <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-2"
+                                    style="font-size: 0.7rem;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="text-center py-3 text-muted">No whitelisted IPs.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 3. Blacklist (Red) -->
+<div class="card shadow-sm border-0 mb-4 overflow-hidden">
+    <div class="card-header bg-danger text-white border-bottom fw-bold d-flex justify-content-between align-items-center"
+        style="background-color: #c0392b !important;">
+        <span><i class="fas fa-ban me-2"></i>Blacklist configuration (csf.deny)</span>
+        <div class="d-flex align-items-center">
+            <small class="me-3 opacity-75">{{ parsed_deny|length }} entries</small>
+            <button class="btn btn-xs btn-light text-danger fw-bold py-0" data-bs-toggle="modal"
+                data-bs-target="#denyActionModal" style="font-size: 0.75rem;">Add an entry</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle" style="font-size: 0.85rem;">
+                <thead class="bg-light text-muted">
+                    <tr>
+                        <th class="ps-3">IP or Rule</th>
+                        <th>Comment</th>
+                        <th class="text-end pe-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in parsed_deny %}
+                    <tr>
+                        <td class="ps-3 fw-bold font-monospace">{{ entry.rule }}</td>
+                        <td class="text-muted small">{{ entry.comment }}</td>
+                        <td class="text-end pe-3">
+                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0"
+                                onsubmit="return confirm('Delete this rule from blacklist?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="remove_rule">
+                                <input type="hidden" name="file_type" value="deny">
+                                <input type="hidden" name="rule_raw" value="{{ entry.raw }}">
+                                <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-2"
+                                    style="font-size: 0.7rem;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="text-center py-3 text-muted">No blacklisted IPs.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- File Editor Tabs -->
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-header bg-white border-bottom fw-semibold"><i
+            class="fas fa-file-code me-2 text-secondary"></i>Configuration Files</div>
+    <div class="card-body">
+        <ul class="nav nav-tabs mb-3" id="csfTabs">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-allow"
+                    type="button">csf.allow</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-deny"
+                    type="button">csf.deny</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ignore"
+                    type="button">csf.ignore</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-pignore"
+                    type="button">csf.pignore</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-regex"
+                    type="button">regex.custom.pm</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-conf"
+                    type="button"><i class="fas fa-cog me-1"></i>csf.conf (raw)</button></li>
+        </ul>
+        <div class="tab-content">
+            {% for file_type, content in [('allow', csf_allow_file), ('deny', csf_deny_file), ('ignore',
+            csf_ignore_file), ('pignore', csf_pignore_file), ('regex', csf_regex_file)] %}
+            <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="tab-{{ file_type }}">
+                <form method="POST" action="{{ url_for('firewall') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="save_csf_file">
+                    <input type="hidden" name="file_type" value="{{ file_type }}">
+                    <textarea name="content" class="form-control font-monospace mb-2" rows="12"
+                        style="font-size:.8rem;">{{ content }}</textarea>
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-save me-1"></i>Save &amp;
+                        Restart CSF</button>
+                </form>
+            </div>
+            {% endfor %}
+            <!-- Raw csf.conf -->
+            <div class="tab-pane fade" id="tab-conf">
+                <form method="POST" action="{{ url_for('firewall') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="save_csf_file">
+                    <input type="hidden" name="file_type" value="config">
+                    <textarea name="content" class="form-control font-monospace mb-2" rows="16"
+                        style="font-size:.8rem;">{{ csf_config_file }}</textarea>
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="fas fa-save me-1"></i>Save &amp;
+                        Restart CSF</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>CSF is not installed on this system.
+</div>
+{% endif %}
+
+<!-- Modals -->
+<!-- Temporary Rule Modal -->
+<div class="modal fade" id="tempActionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('firewall') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="temp_ip">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Temporary IP Rule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" name="type">
+                            <option value="allow">Allow</option>
+                            <option value="deny">Deny</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">IP Address</label>
+                        <input type="text" class="form-control" name="ip" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Time to Live (TTL in seconds)</label>
+                        <input type="number" class="form-control" name="ttl" value="3600" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Port(s) (Optional)</label>
+                        <input type="text" class="form-control" name="ports" placeholder="e.g. 22,80,443">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Direction (Optional)</label>
+                        <select class="form-select" name="direction">
+                            <option value="">In/Out</option>
+                            <option value="in">In</option>
+                            <option value="out">Out</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Comment (Optional)</label>
+                        <input type="text" class="form-control" name="comment">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-warning">Add Temporary Rule</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Allow Rule Modal -->
+<div class="modal fade" id="allowActionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('firewall') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="allow_ip">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Whitelist Entry</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">IP Address or CIDR</label>
+                        <input type="text" class="form-control" name="ip" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Comment (Optional)</label>
+                        <input type="text" class="form-control" name="comment">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-success">Add to Whitelist</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Deny Rule Modal -->
+<div class="modal fade" id="denyActionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('firewall') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="deny_ip">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Blacklist Entry</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">IP Address or CIDR</label>
+                        <input type="text" class="form-control" name="ip" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Comment (Optional)</label>
+                        <input type="text" class="form-control" name="comment">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-danger">Add to Blacklist</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function filterConf(q) {
+        q = q.toLowerCase();
+        document.querySelectorAll('#confTable .conf-row').forEach(row => {
+            row.style.display = row.dataset.key.includes(q) ? '' : 'none';
+        });
+    }
+</script>
+{% endblock %}

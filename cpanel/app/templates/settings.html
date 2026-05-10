@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="fas fa-file-code text-primary me-2"></i> Configuration Editor</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">Directly edit system configuration files. Services will automatically reload upon saving.</p>
+                <div class="list-group">
+                    {% for config in configs %}
+                    <a href="{{ url_for('edit_config', filepath=config.path) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="mb-0">{{ config.name }}</h6>
+                            <small class="text-muted font-monospace" style="font-size: 0.75rem;">{{ config.path }}</small>
+                        </div>
+                        <i class="fas fa-edit text-muted"></i>
+                    </a>
+                    {% else %}
+                    <div class="text-center py-3 text-muted">No editable configurations found.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7 mb-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-clipboard-list text-success me-2"></i> System Logs</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="window.location.reload()" title="Refresh logs">
+                    <i class="fas fa-sync-alt me-1"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <ul class="nav nav-tabs mb-3" id="logTabs" role="tablist">
+                    {% for name in logs %}
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#log-{{ loop.index }}" type="button">{{ name }}</button>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <div class="tab-content" id="logTabsContent">
+                    {% for name, log in logs.items() %}
+                    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="log-{{ loop.index }}">
+                        <p class="small text-muted mb-2"><i class="fas fa-file-alt me-1"></i> {{ log.path }} (Last 100 lines)</p>
+                        <div class="bg-dark text-light p-2 rounded" style="height: 400px; overflow-y: auto;">
+                            <pre class="mb-0" style="font-size: 0.8rem; white-space: pre-wrap;">{{ log.content }}</pre>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-3 text-muted">No logs available.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="fas fa-id-card text-warning me-2"></i> Server Hostname & Panel SSL</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <form method="POST" class="mb-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update_hostname">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold small text-muted text-uppercase">System Hostname</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text"><i class="fas fa-server"></i></span>
+                                    <input type="text" name="hostname" class="form-control" value="{{ current_hostname }}" required placeholder="e.g. srv1.yourdomain.com">
+                                    <button type="submit" class="btn btn-primary" onclick="return confirm('Changing the hostname will update system files. Proceed?')">Change Hostname</button>
+                                </div>
+                                <div class="form-text">This will update /etc/hostname and /etc/hosts.</div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-md-6 border-start">
+                        <label class="form-label fw-bold small text-muted text-uppercase">Panel Security (HTTPS)</label>
+                        <div class="d-flex gap-2 mb-3">
+                            <form method="POST" class="mb-0">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="generate_hostname_ssl">
+                                <input type="hidden" name="hostname" value="{{ current_hostname }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success">
+                                    <i class="fas fa-shield-alt me-1"></i> Generate Let's Encrypt SSL
+                                </button>
+                            </form>
+                            <form method="POST" class="mb-0">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="enable_panel_ssl">
+                                <input type="hidden" name="hostname" value="{{ current_hostname }}">
+                                <button type="submit" class="btn btn-sm btn-success">
+                                    <i class="fas fa-lock me-1"></i> Enable Panel HTTPS
+                                </button>
+                            </form>
+                        </div>
+                        <div class="alert alert-info py-2 small mb-0">
+                            <i class="fas fa-info-circle me-1"></i> 
+                            To use HTTPS, your hostname <strong>{{ current_hostname }}</strong> must point to this server's IP address in your DNS settings.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12 mb-4">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="fas fa-sync text-info me-2"></i> System Update & Version</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Version Information</h6>
+                        <table class="table table-sm table-borderless">
+                            <tr>
+                                <td class="text-muted" style="width: 150px;">Local Version:</td>
+                                <td class="font-monospace">{{ ver_info.local }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Remote Version:</td>
+                                <td class="font-monospace">{{ ver_info.remote }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Branch:</td>
+                                <td><span class="badge bg-light text-dark border">{{ ver_info.branch }}</span></td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Status:</td>
+                                <td>
+                                    {% if ver_info.update_available %}
+                                    <span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle me-1"></i> Update Available</span>
+                                    {% else %}
+                                    <span class="badge bg-success"><i class="fas fa-check-circle me-1"></i> Up to date</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6 border-start">
+                        <h6>Settings & Actions</h6>
+                        <form method="POST" class="mb-3">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update_settings">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" name="auto_update" id="autoUpdateToggle" {% if updater_settings.auto_update %}checked{% endif %}>
+                                <label class="form-check-label" for="autoUpdateToggle">Enable Background Auto-Updates</label>
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-primary">Save Updater Settings</button>
+                        </form>
+                        
+                        <div class="d-flex gap-2">
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="check_update">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="fas fa-search me-1"></i> Check Now</button>
+                            </form>
+                            
+                            {% if ver_info.update_available %}
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="apply_update">
+                                <button type="submit" class="btn btn-sm btn-warning"><i class="fas fa-download me-1"></i> Update Now</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Bootstrap JS for Tabs -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Auto-scroll every log panel to the bottom so latest entries are visible
+    document.querySelectorAll('.tab-pane .bg-dark').forEach(el => {
+        el.scrollTop = el.scrollHeight;
+    });
+    // Also scroll whichever tab becomes active
+    document.querySelectorAll('#logTabs button').forEach(function(btn) {
+        btn.addEventListener('shown.bs.tab', function(e) {
+            var target = document.querySelector(e.target.dataset.bsTarget + ' .bg-dark');
+            if (target) target.scrollTop = target.scrollHeight;
+        });
+    });
+</script>
+{% endblock %}

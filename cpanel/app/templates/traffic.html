@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block header_title %}Traffic Monitor{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-12">
+        <!-- Date Range Filter -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0 text-muted small text-uppercase fw-bold"><i class="fas fa-calendar-alt me-2 text-primary"></i>Report Date Filter</h6>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-end g-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">Start Date</label>
+                        <input type="date" id="startDate" class="form-control border-0 bg-light">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold text-muted">End Date</label>
+                        <input type="date" id="endDate" class="form-control border-0 bg-light">
+                    </div>
+                    <div class="col-md-4 d-flex gap-2">
+                        <button onclick="applyFilter()" class="btn btn-primary w-100">
+                            <i class="fas fa-filter me-2"></i>Apply Filter
+                        </button>
+                        <button onclick="clearFilter()" class="btn btn-outline-secondary">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="filterStatus" class="small text-primary mt-2 d-none">
+                    <i class="fas fa-info-circle me-1"></i> Filter active: Full reports will be limited to the selected date range.
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Web Traffic Overview (via GoAccess)
+                </h5>
+                <small class="text-muted">Real-time statistics per domain</small>
+            </div>
+            <div class="card-body">
+                {% if traffic_stats %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Domain Name</th>
+                                <th class="text-end">Total Hits</th>
+                                <th class="text-end">Unique Visitors</th>
+                                <th class="text-end">Bandwidth Used</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for t in traffic_stats %}
+                            <tr>
+                                <td>
+                                    <span class="fw-bold text-dark">{{ t.domain }}</span>
+                                </td>
+                                <td class="text-end font-monospace">{{ t.hits }}</td>
+                                <td class="text-end font-monospace">{{ t.visitors }}</td>
+                                <td class="text-end font-monospace">
+                                    {% if t.bandwidth > 1024*1024*1024 %}
+                                    <span class="badge bg-warning text-dark">{{ (t.bandwidth / 1024 / 1024 /
+                                        1024)|round(2) }} GB</span>
+                                    {% else %}
+                                    <span class="badge bg-info text-dark">{{ (t.bandwidth / 1024 / 1024)|round(1) }}
+                                        MB</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <a href="{{ url_for('traffic_report', domain=t.domain) }}" target="_blank"
+                                        class="btn btn-sm btn-primary traffic-report-link">
+                                        <i class="fas fa-external-link-alt me-1"></i> Full Report
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="fas fa-globe-americas fa-3x mb-3 opacity-25"></i>
+                    <h5>No Traffic Data Detected</h5>
+                    <p>Make sure your domains are receiving traffic and that GoAccess is installed.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-2">
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0">How it works</h6>
+            </div>
+            <div class="card-body small text-muted">
+                <p>Lite-cPanel uses <strong>GoAccess</strong> to parse Nginx and Apache access logs in real-time. Each
+                    domain configured as a proxy has its own dedicated log file located in <code>/var/log/nginx/</code>
+                    or <code>/var/log/apache2/</code>.</p>
+                <p class="mb-0">"Full Reports" are generated dynamically and provide deep insights into browsers, OS,
+                    status codes, and geographical data of your visitors.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function applyFilter() {
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    
+    if(!start || !end) {
+        alert('Please select both start and end dates.');
+        return;
+    }
+
+    const links = document.querySelectorAll('.traffic-report-link');
+    links.forEach(link => {
+        const url = new URL(link.href, window.location.origin);
+        url.searchParams.set('start', start);
+        url.searchParams.set('end', end);
+        link.href = url.toString();
+    });
+
+    document.getElementById('filterStatus').classList.remove('d-none');
+    
+    localStorage.setItem('traffic_start', start);
+    localStorage.setItem('traffic_end', end);
+}
+
+function clearFilter() {
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+    
+    const links = document.querySelectorAll('.traffic-report-link');
+    links.forEach(link => {
+        const url = new URL(link.href, window.location.origin);
+        url.searchParams.delete('start');
+        url.searchParams.delete('end');
+        link.href = url.toString();
+    });
+
+    document.getElementById('filterStatus').classList.add('d-none');
+    localStorage.removeItem('traffic_start');
+    localStorage.removeItem('traffic_end');
+}
+
+// Load from local storage
+window.addEventListener('DOMContentLoaded', () => {
+    const start = localStorage.getItem('traffic_start');
+    const end = localStorage.getItem('traffic_end');
+    if(start && end) {
+        document.getElementById('startDate').value = start;
+        document.getElementById('endDate').value = end;
+        applyFilter();
+    }
+});
+</script>
+{% endblock %}

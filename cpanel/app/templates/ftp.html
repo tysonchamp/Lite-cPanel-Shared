@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block header_title %}FTP Management{% endblock %}
+
+{% block content %}
+{% if not ftp_installed %}
+<div class="alert alert-warning">
+    <h5 class="alert-heading"><i class="fas fa-exclamation-triangle me-2"></i> Pure-FTPd Not Installed</h5>
+    <p class="mb-0">Pure-FTPd is required for FTP management but is not installed or the `pure-pw` command is
+        unavailable.</p>
+</div>
+{% else %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-1"><i class="fas fa-shield-alt text-success me-2"></i> SFTP Service (Port 22)</h5>
+                    <p class="text-muted small mb-0">SFTP is more secure and works better with firewalls. Status:
+                        {% if sftp_enabled %}
+                        <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </p>
+                </div>
+                <div>
+                    <form method="POST" action="{{ url_for('ftp') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="toggle_sftp">
+                        {% if sftp_enabled %}
+                        <input type="hidden" name="enable" value="false">
+                        <button type="submit" class="btn btn-outline-danger btn-sm"
+                            onclick="return confirm('Disable SFTP globally? SSH will still work, but SFTP connections will fail.')">
+                            <i class="fas fa-power-off me-1"></i> Disable SFTP
+                        </button>
+                        {% else %}
+                        <input type="hidden" name="enable" value="true">
+                        <button type="submit" class="btn btn-success btn-sm">
+                            <i class="fas fa-play me-1"></i> Enable SFTP
+                        </button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Create New FTP User</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('ftp') }}" class="row g-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <input type="hidden" name="action" value="create">
+                    <div class="col-md-4">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-control" name="username" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-control" name="password" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Directory</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted">/var/www/</span>
+                            <input type="text" class="form-control" name="directory"
+                                placeholder="example.com/public_html" required>
+                        </div>
+                    </div>
+                    <div class="col-12 mt-3">
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-plus me-2"></i> Create
+                            User</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Existing FTP Users</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>SFTP Status</th>
+                                <th>Username</th>
+                                <th>Directory Path</th>
+                                <th class="text-end pe-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td class="align-middle">
+                                    <form method="POST" action="{{ url_for('ftp') }}" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="toggle_user_status">
+                                        <input type="hidden" name="username" value="{{ user.username }}">
+                                        {% if user.enabled %}
+                                        <input type="hidden" name="enable" value="false">
+                                        <button type="submit" class="btn btn-sm btn-link p-0 text-success"
+                                            title="Click to Disable">
+                                            <i class="fas fa-toggle-on fa-lg"></i>
+                                        </button>
+                                        {% else %}
+                                        <input type="hidden" name="enable" value="true">
+                                        <button type="submit" class="btn btn-sm btn-link p-0 text-secondary"
+                                            title="Click to Enable">
+                                            <i class="fas fa-toggle-off fa-lg"></i>
+                                        </button>
+                                        {% endif %}
+                                    </form>
+                                </td>
+                                <td class="align-middle fw-bold">{{ user.username }}</td>
+                                <td class="align-middle font-monospace small text-muted">{{ user.directory }}</td>
+                                <td class="align-middle text-end pe-3">
+                                    <button class="btn btn-xs btn-outline-secondary me-1" data-bs-toggle="modal"
+                                        data-bs-target="#passwordModal{{ loop.index }}" style="font-size: 11px;"><i
+                                            class="fas fa-key"></i> Pass</button>
+                                    <form method="POST" action="{{ url_for('ftp') }}" class="d-inline"
+                                        onsubmit="return confirm('Delete this FTP user?');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="username" value="{{ user.username }}">
+                                        <button type="submit" class="btn btn-xs btn-outline-danger"
+                                            style="font-size: 11px;"><i class="fas fa-trash"></i> Del</button>
+                                    </form>
+
+                                    <!-- Password Modal -->
+                                    <div class="modal fade" id="passwordModal{{ loop.index }}" tabindex="-1"
+                                        aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <form method="POST" action="{{ url_for('ftp') }}">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                                                    <input type="hidden" name="action" value="password">
+                                                    <input type="hidden" name="username" value="{{ user.username }}">
+                                                    <div class="modal-header">
+                                                        <h5 class="modal-title">Change Password for {{ user.username }}
+                                                        </h5>
+                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                            aria-label="Close"></button>
+                                                    </div>
+                                                    <div class="modal-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label">New Password</label>
+                                                            <input type="password" class="form-control"
+                                                                name="new_password" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary"
+                                                            data-bs-dismiss="modal">Cancel</button>
+                                                        <button type="submit" class="btn btn-primary">Update
+                                                            Password</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">No FTP users found.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Bootstrap JS for Modals -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endif %}
+{% endblock %}

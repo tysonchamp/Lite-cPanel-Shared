@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+
+{% block header_title %}WordPress Installer{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Install New WordPress Site</h5>
+            </div>
+            <div class="card-body">
+                <form id="wpInstallForm" method="POST" action="{{ url_for('wordpress') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="install_wp">
+                    
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label" for="domainSelect">Select Domain</label>
+                            <select class="form-select" id="domainSelect" name="domain" required>
+                                <option value="" disabled selected>Choose a domain...</option>
+                                {% for vhost in domains %}
+                                    <option value="{{ vhost.domain }}">{{ vhost.domain }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label" for="targetPath">Installation Path (Optional)</label>
+                            <div class="input-group">
+                                <span class="input-group-text">/var/www/{domain}/</span>
+                                <input type="text" class="form-control" id="targetPath" name="target_path" placeholder="e.g. blog or leave blank for root">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100"><i class="fab fa-wordpress me-2"></i> Install</button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Progress Bar UI -->
+                <div id="progressContainer" class="mt-4" style="display: none;">
+                    <h6 id="progressText" class="mb-2">Starting installation...</h6>
+                    <div class="progress" style="height: 20px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+                
+                <!-- Feedback UI -->
+                <div id="progressAlert" class="alert mt-3" style="display: none;"></div>
+
+                <small class="text-muted mt-3 d-block">This will download WordPress, set up a secure MySQL database and configure WP automatically. Database credentials will be stored exclusively inside the <code>wp-config.php</code> file.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Existing WordPress Installations</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Wordpress Site (Domain/Path)</th>
+                                <th>Installation Directory</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for wp in wp_installs %}
+                            <tr>
+                                <td class="align-middle fw-bold">
+                                    <a href="http://{{ wp.domain }}" target="_blank" class="text-decoration-none">
+                                        {{ wp.domain }} <i class="fas fa-external-link-alt ms-1 small"></i>
+                                    </a>
+                                </td>
+                                <td class="align-middle font-monospace small">
+                                    {{ wp.path }}
+                                </td>
+                                <td class="align-middle">
+                                    {% if wp.status == 'Installed' %}
+                                        <span class="badge bg-success"><i class="fas fa-check"></i> Installed</span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> Incomplete</span>
+                                    {% endif %}
+                                </td>
+                                <td class="align-middle">
+                                    <div class="d-flex align-items-center gap-1">
+                                        {% if wp.status == 'Installed' %}
+                                        <a href="http://{{ wp.domain }}/wp-admin" target="_blank" class="btn btn-sm btn-outline-primary" title="WP Admin">
+                                            <i class="fas fa-sign-in-alt"></i> Admin Panel
+                                        </a>
+                                        {% endif %}
+                                        <form method="POST" action="{{ url_for('wordpress') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to permanently delete this WordPress installation and its associated database?');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="delete_wp">
+                                            <input type="hidden" name="path" value="{{ wp.path }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Uninstall WordPress">
+                                                <i class="fas fa-trash-alt"></i> Uninstall
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">No WordPress installations found.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('domainSelect').addEventListener('change', function() {
+        const span = document.querySelector('.input-group-text');
+        span.textContent = `/var/www/${this.value}/`;
+    });
+
+    const form = document.getElementById('wpInstallForm');
+    const btn = form.querySelector('button[type="submit"]');
+    const container = document.getElementById('progressContainer');
+    const text = document.getElementById('progressText');
+    const bar = document.getElementById('progressBar');
+    const alertDiv = document.getElementById('progressAlert');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Installing...';
+        
+        container.style.display = 'block';
+        alertDiv.style.display = 'none';
+        bar.style.width = '0%';
+        bar.innerText = '0%';
+        text.innerText = 'Initializing...';
+        bar.classList.remove('bg-danger', 'bg-success');
+        bar.classList.add('progress-bar-animated');
+
+        try {
+            const formData = new FormData(form);
+            const response = await fetch("{{ url_for('wordpress') }}", {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error("Network response was not ok");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split("\n");
+                
+                buffer = lines.pop(); // keep remainder in buffer
+                
+                for (let line of lines) {
+                    if (line.trim()) {
+                        const data = JSON.parse(line);
+                        bar.style.width = data.progress + "%";
+                        bar.innerText = data.progress + "%";
+                        text.innerText = data.message;
+                        
+                        if (data.error) {
+                            bar.classList.add('bg-danger');
+                            alertDiv.className = 'alert alert-danger mt-3';
+                            alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ' + data.message;
+                            alertDiv.style.display = 'block';
+                        } else if (data.success) {
+                            bar.classList.add('bg-success');
+                            alertDiv.className = 'alert alert-success mt-3';
+                            alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ' + data.message + ' <a href="" class="alert-link">Refresh page</a> view your new site';
+                            alertDiv.style.display = 'block';
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            bar.classList.add('bg-danger');
+            alertDiv.className = 'alert alert-danger mt-3';
+            alertDiv.innerText = "Connection failed: " + err.message;
+            alertDiv.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fab fa-wordpress me-2"></i> Install';
+            bar.classList.remove('progress-bar-animated');
+        }
+    });
+</script>
+{% endblock %}

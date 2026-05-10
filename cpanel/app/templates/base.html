@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lite cPanel</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', 'Segoe UI', sans-serif; background-color: #f0f2f5; color: #1a1a1a; }
+        .sidebar { 
+            width: 260px; 
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); 
+            color: #cbd5e1; 
+            position: fixed; 
+            top: 0; 
+            bottom: 0; 
+            padding: 20px 0; 
+            overflow-y: auto; 
+            box-shadow: 4px 0 10px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        .sidebar::-webkit-scrollbar { width: 5px; }
+        .sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        
+        .sidebar-brand { padding: 0 25px 25px; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }
+        
+        .sidebar a { 
+            display: flex; 
+            align-items: center; 
+            padding: 12px 25px; 
+            color: #94a3b8; 
+            text-decoration: none; 
+            font-size: 0.88rem; 
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+        .sidebar a i { 
+            width: 20px; 
+            margin-right: 12px; 
+            font-size: 1.1rem; 
+            text-align: center;
+            opacity: 0.7;
+            transition: all 0.2s ease;
+        }
+        .sidebar a:hover { 
+            background: rgba(255,255,255,0.03); 
+            color: #f8fafc; 
+            border-left-color: #3b82f6;
+        }
+        .sidebar a:hover i { opacity: 1; transform: scale(1.1); color: #3b82f6; }
+        
+        .main-content { margin-left: 260px; padding: 25px 35px; min-height: 100vh; }
+        .header { 
+            background: white; 
+            padding: 15px 25px; 
+            margin-bottom: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            border: 1px solid #e2e8f0;
+        }
+        
+        /* Card & Utility Styles */
+        .card { border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); background: white; }
+        .card-header { background: white; padding: 15px 20px; font-weight: 600; font-size: 0.95rem; border-bottom: 1px solid #e2e8f0; }
+        
+        .stat-card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 24px; 
+            text-align: left; 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+            border: 1px solid #e2e8f0;
+            transition: transform 0.2s ease;
+        }
+        .stat-card i { font-size: 1.5rem; margin-bottom: 15px; color: #3b82f6; display: block; }
+        .stat-card h3 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; }
+        .stat-card p { margin: 8px 0 0; color: #1e293b; font-size: 1.4rem; font-weight: 800; }
+        .progress-bar-custom { height: 6px; border-radius: 3px; background: #f1f5f9; margin-top: 15px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); transition: width 0.8s ease; }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-brand text-center">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="Lite cPanel" style="width: 130px; mix-blend-mode: screen;">
+        </div>
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+        <a href="{{ url_for('traffic_monitor') }}"><i class="fas fa-chart-line text-success"></i> Traffic Monitor</a>
+        <a href="{{ url_for('domains') }}"><i class="fas fa-globe"></i> Domains</a>
+        <a href="{{ url_for('nextjs') }}"><i class="fab fa-react text-info"></i> Next.js Apps</a>
+        <a href="{{ url_for('process_manager') }}"><i class="fas fa-tasks text-warning"></i> Process Manager</a>
+        <a href="{{ url_for('databases') }}"><i class="fas fa-database"></i> Databases</a>
+        
+        {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('mongodb_route') }}"><i class="fas fa-leaf text-success"></i> MongoDB</a>
+        <a href="{{ url_for('ftp') }}"><i class="fas fa-folder-open"></i> FTP</a>
+        {% endif %}
+        
+        <a href="{{ url_for('filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
+        <a href="{{ url_for('wordpress') }}"><i class="fab fa-wordpress"></i> WordPress</a>
+        
+        {% if session.get('role') == 'admin' %}
+        <a href="{{ url_for('backups') }}"><i class="fas fa-cloud-upload-alt"></i> Backups</a>
+        <a href="{{ url_for('firewall') }}"><i class="fas fa-shield-alt"></i> Firewall</a>
+        <a href="{{ url_for('modsecurity') }}"><i class="fas fa-user-shield"></i> ModSecurity</a>
+        <a href="{{ url_for('terminal') }}"><i class="fas fa-terminal"></i> Terminal</a>
+        <a href="{{ url_for('cron') }}"><i class="fas fa-clock"></i> Cron Jobs</a>
+        <a href="{{ url_for('settings') }}"><i class="fas fa-cogs"></i> Settings</a>
+        <div style="border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;"></div>
+        <a href="{{ url_for('admin_plans') }}"><i class="fas fa-list-alt text-warning"></i> Hosting Plans</a>
+        <a href="{{ url_for('admin_users') }}"><i class="fas fa-users text-primary"></i> Manage Users</a>
+        {% endif %}
+        <a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h4 class="m-0">{% block header_title %}Dashboard{% endblock %}</h4>
+            <div class="small text-muted">User: <strong>{{ session['username'] }}</strong></div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }} alert-dismissible fade show py-2 small" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+
+        <footer class="mt-5 text-center text-muted small">
+            &copy; 2026 <a href="https://github.com/tysonchamp/Lite-cPanel" target="_blank" class="text-decoration-none text-secondary fw-bold">Lite cPanel</a>
+        </footer>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

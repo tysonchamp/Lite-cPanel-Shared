@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Log Viewer — {{ domain }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12">
+        <a href="{{ url_for('domains') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i> Back to Domains
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-header bg-white border-bottom">
+        <h5 class="mb-0"><i class="fas fa-terminal me-2 text-primary"></i>Log Viewer — <span class="text-primary">{{ domain }}</span></h5>
+    </div>
+    <div class="card-body">
+        {% if available_logs %}
+        <!-- Controls Row -->
+        <div class="row g-3 align-items-end mb-3">
+            <div class="col-md-5">
+                <label class="form-label fw-semibold mb-1">Log File</label>
+                <select id="logSelect" class="form-select">
+                    {% for label, path in available_logs.items() %}
+                    <option value="{{ label }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold mb-1">Lines to Show</label>
+                <select id="linesSelect" class="form-select">
+                    <option value="50">Last 50 lines</option>
+                    <option value="100" selected>Last 100 lines</option>
+                    <option value="250">Last 250 lines</option>
+                    <option value="500">Last 500 lines</option>
+                    <option value="1000">Last 1000 lines</option>
+                    <option value="5000">Last 5000 lines</option>
+                </select>
+            </div>
+            <div class="col-md-4 d-flex gap-2">
+                <button id="fetchBtn" class="btn btn-primary w-100" onclick="fetchLogs()">
+                    <i class="fas fa-sync-alt me-2"></i>Fetch / Refresh
+                </button>
+                <button id="autoRefreshBtn" class="btn btn-outline-secondary" onclick="toggleAutoRefresh()" title="Auto-refresh every 5s">
+                    <i class="fas fa-clock"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Path Info -->
+        <div id="logPath" class="text-muted small mb-2" style="font-family: monospace;"></div>
+
+        <!-- Log Output -->
+        <div id="logContainer" class="bg-dark rounded p-3" style="min-height:400px; max-height:70vh; overflow-y:auto; position:relative;">
+            <div id="logSpinner" class="text-center text-white py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-2 text-muted">Loading logs…</p>
+            </div>
+            <pre id="logContent" class="mb-0" style="color:#a9b7c6; font-family:monospace; font-size:0.8rem; white-space:pre-wrap; display:none;"></pre>
+            <div id="logError" class="text-danger" style="display:none;"></div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+            <small id="lastRefreshed" class="text-muted"></small>
+            <small id="autoRefreshStatus" class="text-muted"></small>
+        </div>
+
+        {% else %}
+        <div class="alert alert-warning mb-0">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            No log files found for <strong>{{ domain }}</strong>. Make sure the domain has been created and has received traffic.
+            Traffic logging requires the domain's vhost config to include <code>ErrorLog</code> / <code>CustomLog</code> (Apache) or <code>access_log</code> / <code>error_log</code> (Nginx) directives.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+const FETCH_URL = "{{ url_for('domain_logs_fetch', domain=domain) }}";
+let autoRefreshInterval = null;
+let autoRefreshActive = false;
+
+function fetchLogs() {
+    const logKey   = document.getElementById('logSelect').value;
+    const lines    = document.getElementById('linesSelect').value;
+    const spinner  = document.getElementById('logSpinner');
+    const content  = document.getElementById('logContent');
+    const errDiv   = document.getElementById('logError');
+    const pathDiv  = document.getElementById('logPath');
+    const btn      = document.getElementById('fetchBtn');
+
+    spinner.style.display = 'block';
+    content.style.display = 'none';
+    errDiv.style.display  = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Fetching…';
+
+    const url = `${FETCH_URL}?log=${encodeURIComponent(logKey)}&lines=${lines}`;
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            spinner.style.display = 'none';
+            if (data.error) {
+                errDiv.textContent = 'Error: ' + data.error;
+                errDiv.style.display = 'block';
+            } else {
+                content.textContent = data.content;
+                content.style.display = 'block';
+                pathDiv.textContent = '📂 ' + data.path;
+                // Scroll to bottom
+                const box = document.getElementById('logContainer');
+                box.scrollTop = box.scrollHeight;
+            }
+            const now = new Date();
+            document.getElementById('lastRefreshed').textContent =
+                'Last refreshed: ' + now.toLocaleTimeString();
+        })
+        .catch(err => {
+            spinner.style.display = 'none';
+            errDiv.textContent = 'Network error: ' + err;
+            errDiv.style.display = 'block';
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt me-2"></i>Fetch / Refresh';
+        });
+}
+
+function toggleAutoRefresh() {
+    const btn    = document.getElementById('autoRefreshBtn');
+    const status = document.getElementById('autoRefreshStatus');
+    if (autoRefreshActive) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshActive = false;
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-secondary');
+        status.textContent = '';
+    } else {
+        autoRefreshActive = true;
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add('btn-success');
+        status.textContent = 'Auto-refreshing every 5s';
+        fetchLogs(); // immediate first fetch
+        autoRefreshInterval = setInterval(fetchLogs, 5000);
+    }
+}
+
+// Also re-fetch when the selector changes
+document.addEventListener('DOMContentLoaded', () => {
+    {% if available_logs %}
+    fetchLogs();
+    {% endif %}
+    document.getElementById('logSelect').addEventListener('change', fetchLogs);
+    document.getElementById('linesSelect').addEventListener('change', fetchLogs);
+});
+</script>
+{% endblock %}

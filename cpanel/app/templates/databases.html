@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Databases{% endblock %}
+
+{% block content %}
+<!-- Create Database -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Create New Database</h5>
+                <a href="{{ url_for('phpmyadmin_login') }}" target="_blank" class="btn btn-sm btn-info text-white">
+                    <i class="fas fa-external-link-alt me-2"></i>phpMyAdmin
+                </a>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('databases') }}" class="row g-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="create">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Database Name</label>
+                        <input type="text" class="form-control" name="db_name" required placeholder="myapp_db">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Database User</label>
+                        <input type="text" class="form-control" name="db_user" required placeholder="myapp_user">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">User Password</label>
+                        <input type="password" class="form-control" name="db_pass" required placeholder="••••••••">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Create Database &amp; User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Existing Databases -->
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Existing Databases</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Database</th>
+                                <th>Users</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for db in db_details %}
+                            <tr>
+                                <!-- DB Name -->
+                                <td class="fw-bold">
+                                    <i class="fas fa-database text-primary me-2"></i>{{ db.name }}
+                                </td>
+
+                                <!-- Users + host badges -->
+                                <td>
+                                    {% if db.users %}
+                                        {% for u in db.users %}
+                                        <div class="d-flex align-items-center gap-2 mb-1">
+                                            <span class="font-monospace fw-semibold">{{ u.User }}</span>
+                                            {% if u.Host == 'localhost' %}
+                                            <span class="badge bg-secondary" title="Local access only">
+                                                <i class="fas fa-house me-1"></i>localhost
+                                            </span>
+                                            {% elif u.Host == '%' %}
+                                            <span class="badge bg-warning text-dark" title="Remote access allowed">
+                                                <i class="fas fa-globe me-1"></i>Remote (%)
+                                            </span>
+                                            {% else %}
+                                            <span class="badge bg-info text-dark">{{ u.Host }}</span>
+                                            {% endif %}
+
+                                            <!-- Change Password trigger -->
+                                            <button class="btn btn-link btn-sm p-0 text-muted" title="Change Password"
+                                                onclick="openChangePassword('{{ u.User }}', '{{ u.Host }}')">
+                                                <i class="fas fa-key"></i>
+                                            </button>
+
+                                            <!-- Toggle Host trigger -->
+                                            <button type="button" class="btn btn-link btn-sm p-0"
+                                                    title="Manage Host Access"
+                                                    {% if u.Host == 'localhost' %}
+                                                    style="color: #6c757d;"
+                                                    {% else %}
+                                                    style="color: #f0ad4e;"
+                                                    {% endif %}
+                                                    onclick="openHostModal('{{ db.name }}', '{{ u.User }}', '{{ u.Host }}')">                                                    <i class="fas fa-network-wired"></i>
+                                            </button>
+                                        </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted small"><em>No users found</em></span>
+                                    {% endif %}
+                                </td>
+
+                                <!-- Drop DB -->
+                                <td class="text-end">
+                                    <form method="POST" action="{{ url_for('databases') }}" class="d-inline"
+                                          onsubmit="return confirm('Drop {{ db.name }}? This is permanent.');">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="db_name" value="{{ db.name }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            <i class="fas fa-trash me-1"></i>Drop
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">
+                                    No databases found or database server is offline.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="cpwLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('databases') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="change_password">
+                <input type="hidden" name="db_user" id="cpw_user">
+                <input type="hidden" name="host"    id="cpw_host">
+
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cpwLabel"><i class="fas fa-key me-2"></i>Change Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        Changing password for user <strong id="cpw_user_display"></strong>
+                        on host <code id="cpw_host_display"></code>
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">New Password</label>
+                        <input type="password" class="form-control" name="new_password" required
+                               placeholder="Enter new password" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Host Management Modal -->
+<div class="modal fade" id="hostModal" tabindex="-1" aria-labelledby="hostModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('databases') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="update_host">
+                <input type="hidden" name="db_name" id="host_db_name">
+                <input type="hidden" name="db_user" id="host_db_user">
+                <input type="hidden" name="old_host" id="host_old_host">
+
+                <div class="modal-header">
+                    <h5 class="modal-title" id="hostModalLabel"><i class="fas fa-network-wired me-2"></i>Host Access Management</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        Managing access for <strong id="host_user_display"></strong>
+                        (current host: <code id="host_current_display"></code>)
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Allow access from</label>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="new_host" id="host_local"
+                                       value="localhost" onchange="toggleIpField(false)">
+                                <label class="form-check-label" for="host_local">
+                                    <i class="fas fa-house me-2 text-secondary"></i>
+                                    <strong>Local only</strong> — <span class="text-muted">only this server can connect</span>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="new_host" id="host_ip"
+                                       value="__custom__" onchange="toggleIpField(true)">
+                                <label class="form-check-label" for="host_ip">
+                                    <i class="fas fa-shield-alt me-2 text-info"></i>
+                                    <strong>Specific IP address</strong> — <span class="text-muted">restrict to a single trusted IP</span>
+                                </label>
+                            </div>
+                            <div id="ipInputWrapper" class="ps-4" style="display:none;">
+                                <input type="text" class="form-control form-control-sm" id="custom_ip"
+                                       placeholder="e.g. 203.0.113.42">
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="new_host" id="host_any"
+                                       value="%" onchange="toggleIpField(false)">
+                                <label class="form-check-label" for="host_any">
+                                    <i class="fas fa-globe me-2 text-warning"></i>
+                                    <strong>Any host (%)</strong> — <span class="text-muted text-danger">open to all IPs, use with caution</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" onclick="return applyHostSelection()">Apply</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openChangePassword(user, host) {
+    document.getElementById('cpw_user').value          = user;
+    document.getElementById('cpw_host').value          = host;
+    document.getElementById('cpw_user_display').textContent = user;
+    document.getElementById('cpw_host_display').textContent = host;
+    new bootstrap.Modal(document.getElementById('changePasswordModal')).show();
+}
+
+function openHostModal(dbName, user, currentHost) {
+    document.getElementById('host_db_name').value          = dbName;
+    document.getElementById('host_db_user').value          = user;
+    document.getElementById('host_old_host').value         = currentHost;
+    document.getElementById('host_user_display').textContent    = user;
+    document.getElementById('host_current_display').textContent = currentHost;
+
+    // Pre-select the radio matching current host
+    document.getElementById('ipInputWrapper').style.display = 'none';
+    document.getElementById('custom_ip').value = '';
+    if (currentHost === 'localhost') {
+        document.getElementById('host_local').checked = true;
+    } else if (currentHost === '%') {
+        document.getElementById('host_any').checked = true;
+    } else {
+        // It's a specific IP — pre-fill it
+        document.getElementById('host_ip').checked = true;
+        document.getElementById('custom_ip').value = currentHost;
+        document.getElementById('ipInputWrapper').style.display = 'block';
+    }
+
+    new bootstrap.Modal(document.getElementById('hostModal')).show();
+}
+
+function toggleIpField(show) {
+    document.getElementById('ipInputWrapper').style.display = show ? 'block' : 'none';
+    if (!show) document.getElementById('custom_ip').value = '';
+}
+
+function applyHostSelection() {
+    const selected = document.querySelector('input[name="new_host"]:checked');
+    if (!selected) { alert('Please select a host option.'); return false; }
+
+    if (selected.value === '__custom__') {
+        const ip = document.getElementById('custom_ip').value.trim();
+        if (!ip) { alert('Please enter a specific IP address.'); return false; }
+        // Swap the radio value to the actual IP before submitting
+        selected.value = ip;
+    }
+    return true;
+}
+</script>
+{% endblock %}

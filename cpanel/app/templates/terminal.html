@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block header_title %}System Terminal{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+<style>
+    .terminal-container {
+        height: 70vh;
+        width: 100%;
+        background-color: #000;
+        padding: 10px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        overflow: hidden;
+        border: 1px solid #334155;
+    }
+    #terminal {
+        height: 100%;
+        width: 100%;
+    }
+    /* Slick Scrollbar for Xterm */
+    .xterm-viewport::-webkit-scrollbar {
+        width: 10px;
+    }
+    .xterm-viewport::-webkit-scrollbar-track {
+        background: #0f172a;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 10px;
+        border: 2px solid #0f172a;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb:hover {
+        background: #475569;
+    }
+</style>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-terminal me-2 text-primary"></i> root@localhost</h5>
+                <span class="badge bg-success" id="connection-status">Connecting...</span>
+            </div>
+            <div class="card-body bg-dark">
+                <div class="terminal-container">
+                    <div id="terminal"></div>
+                </div>
+            </div>
+            <div class="card-footer bg-light">
+                <small class="text-muted"><i class="fas fa-exclamation-triangle text-warning me-1"></i> You have root access. Be careful with the commands you execute.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var term = new Terminal({
+            cursorBlink: true,
+            theme: {
+                background: '#000000',
+                foreground: '#f0f0f0'
+            },
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace'
+        });
+        
+        var fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        var wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var wsUrl = wsProtocol + '//' + window.location.host + '/terminal/ws';
+        var socket = new WebSocket(wsUrl);
+        var statusBadge = document.getElementById('connection-status');
+
+        socket.onopen = function() {
+            statusBadge.textContent = 'Connected';
+            statusBadge.className = 'badge bg-success';
+            
+            // Send initial resize
+            socket.send(JSON.stringify({
+                type: 'resize',
+                cols: term.cols,
+                rows: term.rows
+            }));
+            
+            term.focus();
+        };
+
+        socket.onmessage = function(event) {
+            term.write(event.data);
+        };
+
+        socket.onclose = function() {
+            statusBadge.textContent = 'Disconnected';
+            statusBadge.className = 'badge bg-danger';
+            term.write('\r\n\x1b[31m[Terminal Connection Closed]\x1b[0m\r\n');
+        };
+
+        socket.onerror = function() {
+            statusBadge.textContent = 'Error';
+            statusBadge.className = 'badge bg-warning text-dark';
+        };
+
+        term.onData(function(data) {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'input',
+                    data: data
+                }));
+            }
+        });
+
+        window.addEventListener('resize', function() {
+            fitAddon.fit();
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            }
+        });
+    });
+</script>
+{% endblock %}

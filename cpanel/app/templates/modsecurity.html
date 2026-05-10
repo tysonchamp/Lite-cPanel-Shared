@@ -1,0 +1,499 @@
+{% extends 'base.html' %}
+{% block header_title %}ModSecurity Management{% endblock %}
+
+{% block content %}
+
+{% if not modsec_installed %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0 border-primary border-top border-3">
+            <div class="card-body p-5 text-center">
+                <i class="fas fa-shield-alt text-primary mb-3" style="font-size: 3rem;"></i>
+                <h4 class="mb-3">ModSecurity Web Application Firewall (WAF)</h4>
+                <p class="text-muted mb-4 mx-auto" style="max-width: 600px;">
+                    ModSecurity is currently <strong>UNINSTALLED</strong>. It appears the initial setup script bypassed this module. 
+                    Installing the WAF framework natively via cPanel enables robust traffic inspection, deep request scanning, and integrates the high-security OWASP Core Rule Set.
+                </p>
+                
+                <form id="modsecInstallForm" method="POST" action="{{ url_for('modsecurity') }}" class="d-inline-block">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="install_modsec">
+                    <button type="submit" class="btn btn-primary btn-lg px-5">
+                        <i class="fas fa-download me-2"></i> Install & Configure ModSecurity
+                    </button>
+                </form>
+
+                <!-- Progress Bar UI -->
+                <div id="progressContainer" class="mt-5 mx-auto" style="display: none; max-width: 600px; text-align: left;">
+                    <h6 id="progressText" class="mb-2 fw-bold text-dark">Initializing installation sequence...</h6>
+                    <div class="progress shadow-sm" style="height: 25px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+                
+                <!-- Feedback UI -->
+                <div id="progressAlert" class="alert mt-4 mx-auto" style="display: none; max-width: 600px; text-align: left;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const form = document.getElementById('modsecInstallForm');
+    const btn = form.querySelector('button[type="submit"]');
+    const container = document.getElementById('progressContainer');
+    const text = document.getElementById('progressText');
+    const bar = document.getElementById('progressBar');
+    const alertDiv = document.getElementById('progressAlert');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Executing Configuration...';
+        
+        container.style.display = 'block';
+        alertDiv.style.display = 'none';
+        bar.style.width = '0%';
+        bar.innerText = '0%';
+        text.innerText = 'Connecting to external apt repositories...';
+        bar.classList.remove('bg-danger', 'bg-success', 'bg-primary');
+        bar.classList.add('bg-primary', 'progress-bar-animated');
+
+        try {
+            const formData = new FormData(form);
+            const response = await fetch("{{ url_for('modsecurity') }}", {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) throw new Error("Network response drop");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split("\n");
+                
+                buffer = lines.pop(); // remainder
+                
+                for (let line of lines) {
+                    if (line.trim()) {
+                        const data = JSON.parse(line);
+                        bar.style.width = data.progress + "%";
+                        bar.innerText = data.progress + "%";
+                        text.innerText = data.message;
+                        
+                        if (data.error) {
+                            bar.classList.replace('bg-primary', 'bg-danger');
+                            alertDiv.className = 'alert alert-danger mt-3 shadow-sm';
+                            alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ' + data.message;
+                            alertDiv.style.display = 'block';
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fas fa-redo me-2"></i> Retry Installation';
+                        } else if (data.success) {
+                            bar.classList.replace('bg-primary', 'bg-success');
+                            bar.classList.remove('progress-bar-animated');
+                            alertDiv.className = 'alert alert-success mt-3 shadow-sm';
+                            alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ' + data.message + ' Refreshing platform...';
+                            alertDiv.style.display = 'block';
+                            
+                            setTimeout(() => { window.location.reload(); }, 2500);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            bar.classList.replace('bg-primary', 'bg-danger');
+            alertDiv.className = 'alert alert-danger mt-3 shadow-sm';
+            alertDiv.innerText = "Connection failed: " + err.message;
+            alertDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-redo me-2"></i> Retry Installation';
+        }
+    });
+</script>
+
+{% else %}
+
+<!-- Tab Navigation -->
+<ul class="nav nav-pills mb-4 bg-white p-2 rounded shadow-sm" id="modsecTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="config-tab" data-bs-toggle="pill" data-bs-target="#config" type="button" role="tab">
+            <i class="fas fa-cog me-2"></i>Configuration
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="domains-tab" data-bs-toggle="pill" data-bs-target="#domains" type="button" role="tab">
+            <i class="fas fa-globe me-2"></i>Domains
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="rules-tab" data-bs-toggle="pill" data-bs-target="#rules" type="button" role="tab">
+            <i class="fas fa-file-code me-2"></i>Rules &amp; Config
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="logs-tab" data-bs-toggle="pill" data-bs-target="#logs" type="button" role="tab" onclick="refreshLogs()">
+            <i class="fas fa-list-alt me-2"></i>Logs
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="modsecTabsContent">
+    <!-- Configuration Tab -->
+    <div class="tab-pane fade show active" id="config" role="tabpanel">
+        <div class="row g-4">
+            <div class="col-md-8">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0">ModSecurity Rules Profile</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info border-0 shadow-none small mb-4">
+                            <i class="fas fa-info-circle me-2"></i>
+                            We recommend using <strong>OWASP Core Rule Set</strong> as it provides the best balance between security and compatibility.
+                        </div>
+                        
+                        <div class="list-group list-group-flush border rounded">
+                            {% for profile in modsec_profiles %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center py-3">
+                                <div>
+                                    <h6 class="mb-1">{{ profile.name }}</h6>
+                                    <p class="text-muted small mb-0">{{ profile.description }}</p>
+                                </div>
+                                <div>
+                                    {% if profile.active %}
+                                    <button class="btn btn-sm btn-success px-3" disabled><i class="fas fa-check me-1"></i>Active</button>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('modsecurity') }}" class="m-0">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="activate_profile">
+                                        <input type="hidden" name="profile_id" value="{{ profile.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-primary px-3">Enable</button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0">Global Rules Engine</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">This setting controls the behavior of the rules engine globally.</p>
+                        <form method="POST" action="{{ url_for('modsecurity') }}" class="d-flex flex-wrap gap-3">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="set_modsec_status">
+                            
+                            <div class="form-check card-select p-3 border rounded {% if modsec_status == 'On' %}bg-light border-primary{% endif %}" style="flex: 1; min-width: 200px;">
+                                <input class="form-check-input" type="radio" name="status" id="statusOn" value="On" {% if modsec_status == 'On' %}checked{% endif %}>
+                                <label class="form-check-label" for="statusOn">
+                                    <span class="d-block fw-bold">Process the rules</span>
+                                    <span class="text-muted small">Active blocking mode (Recommended)</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check card-select p-3 border rounded {% if modsec_status == 'DetectionOnly' %}bg-light border-warning{% endif %}" style="flex: 1; min-width: 200px;">
+                                <input class="form-check-input" type="radio" name="status" id="statusDetect" value="DetectionOnly" {% if modsec_status == 'DetectionOnly' %}checked{% endif %}>
+                                <label class="form-check-label" for="statusDetect">
+                                    <span class="d-block fw-bold text-warning">Detection Only</span>
+                                    <span class="text-muted small">Log requests but do not block</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check card-select p-3 border rounded {% if modsec_status == 'Off' %}bg-light border-danger{% endif %}" style="flex: 1; min-width: 200px;">
+                                <input class="form-check-input" type="radio" name="status" id="statusOff" value="Off" {% if modsec_status == 'Off' %}checked{% endif %}>
+                                <label class="form-check-label" for="statusOff">
+                                    <span class="d-block fw-bold text-danger">Do not process</span>
+                                    <span class="text-muted small">Completely disabled</span>
+                                </label>
+                            </div>
+                            
+                            <div class="w-100 mt-3">
+                                <button type="submit" class="btn btn-primary px-4">
+                                    <i class="fas fa-save me-2"></i>Save Engine Status
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions Sidebar -->
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0">Quick Actions</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center mb-3">
+                            <span class="badge {% if modsec_installed %}bg-success{% else %}bg-danger{% endif %} me-2">
+                                {{ "Installed" if modsec_installed else "Not Installed" }}
+                            </span>
+                            <span class="small text-muted">Version 3.0.x</span>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <form method="POST" action="{{ url_for('modsecurity') }}" class="d-grid shadow-none">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="test_config">
+                                <button type="submit" class="btn btn-outline-info btn-sm">
+                                    <i class="fas fa-vial me-2"></i>Test ModSec Config
+                                </button>
+                            </form>
+                            <hr>
+                            <div class="text-center small fw-bold mb-2">Webserver Controls</div>
+                            <form method="POST" action="{{ url_for('modsecurity') }}" class="row g-2 shadow-none">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="col-6">
+                                    <button type="submit" name="action" value="reload" class="btn btn-outline-secondary btn-sm w-100">
+                                        <i class="fas fa-sync me-2"></i>Reload
+                                    </button>
+                                </div>
+                                <div class="col-6">
+                                    <button type="submit" name="action" value="restart" class="btn btn-outline-danger btn-sm w-100">
+                                        <i class="fas fa-power-off me-2"></i>Restart
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0">Configuration Files</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush">
+                            <button class="list-group-item list-group-item-action py-3 small" onclick="switchRulesTab('main')">
+                                <i class="fas fa-file-alt me-2 text-primary"></i>Main Configuration
+                            </button>
+                            <button class="list-group-item list-group-item-action py-3 small" onclick="switchRulesTab('custom')">
+                                <i class="fas fa-edit me-2 text-success"></i>Custom Rules Configuration
+                            </button>
+                            <button class="list-group-item list-group-item-action py-3 small" onclick="switchRulesTab('disabled')">
+                                <i class="fas fa-ban me-2 text-danger"></i>Disabled Rules List
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Domains Tab -->
+    <div class="tab-pane fade" id="domains" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Domain Specific ModSecurity</h5>
+                <div class="input-group w-auto">
+                    <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
+                    <input type="text" class="form-control border-start-0" id="domainSearch" placeholder="Filter domains..." onkeyup="searchDomains()">
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="domainsTable">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-4">Domain Name</th>
+                                <th>Webserver</th>
+                                <th>Status</th>
+                                <th class="text-end pe-4">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in domain_modsec %}
+                            <tr>
+                                <td class="ps-4 fw-bold">{{ d.domain }}</td>
+                                <td>
+                                    {% for s in d.servers %}
+                                    <span class="badge bg-light text-dark border">{{ s }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% if d.status %}
+                                    <span class="text-success"><i class="fas fa-check-circle me-1"></i>Enabled</span>
+                                    {% else %}
+                                    <span class="text-danger"><i class="fas fa-times-circle me-1"></i>Disabled</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end pe-4">
+                                    <form method="POST" action="{{ url_for('modsecurity') }}" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="toggle_domain">
+                                        <input type="hidden" name="domain" value="{{ d.domain }}">
+                                        <input type="hidden" name="enabled" value="{{ 'false' if d.status else 'true' }}">
+                                        <button type="submit" class="btn btn-sm {% if d.status %}btn-outline-danger{% else %}btn-success{% endif %}">
+                                            {{ "Disable" if d.status else "Enable" }} ModSec
+                                        </button>
+                                    </form>
+                                    <a href="{{ url_for('modsecurity') }}?domain={{ d.domain }}#logs" class="btn btn-sm btn-outline-secondary ms-2" title="View Logs">
+                                        <i class="fas fa-list"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rules & Config Tab -->
+    <div class="tab-pane fade" id="rules" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3">
+                <ul class="nav nav-tabs card-header-tabs" id="rulesEditorTabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" id="main-conf-tab" data-bs-toggle="tab" data-bs-target="#main-conf" type="button">Main Configuration</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="custom-rules-tab" data-bs-toggle="tab" data-bs-target="#custom-rules" type="button">Custom Rules</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="disabled-rules-tab" data-bs-toggle="tab" data-bs-target="#disabled-rules" type="button">Disabled Rules</button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="main-conf">
+                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="save_config">
+                            <input type="hidden" name="file_type" value="main">
+                            <textarea name="content" class="form-control font-monospace mb-3" rows="18">{{ main_config }}</textarea>
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Save Main Config</button>
+                        </form>
+                    </div>
+                    <div class="tab-pane fade" id="custom-rules">
+                        <div class="alert alert-success border-0 small mb-3">
+                            <i class="fas fa-lightbulb me-2"></i>You can add your own custom ModSecurity rules here. These rules are applied after the main ruleset.
+                        </div>
+                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="save_config">
+                            <input type="hidden" name="file_type" value="custom">
+                            <textarea name="content" class="form-control font-monospace mb-3" rows="18" placeholder="# Add custom rules here...">{{ custom_rules }}</textarea>
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Save Custom Rules</button>
+                        </form>
+                    </div>
+                    <div class="tab-pane fade" id="disabled-rules">
+                        <div class="alert alert-warning border-0 small mb-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>To disable a specific rule, add its ID here (e.g., <code>SecRuleRemoveById 920420</code>).
+                        </div>
+                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="save_config">
+                            <input type="hidden" name="file_type" value="disabled">
+                            <textarea name="content" class="form-control font-monospace mb-3" rows="18" placeholder="SecRuleRemoveById 000000">{{ disabled_rules }}</textarea>
+                            <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Save Disabled Rules List</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div class="tab-pane fade" id="logs" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">ModSecurity Audit Logs</h5>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm w-auto" id="logDomainFilter" onchange="filterLogsByDomain(this.value)">
+                        <option value="">All Domains</option>
+                        {% for d in domain_modsec %}
+                        <option value="{{ d.domain }}" {% if current_filter == d.domain %}selected{% endif %}>{{ d.domain }}</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshLogs()">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="bg-dark p-3 rounded-bottom overflow-auto" id="logViewerContainer" style="height: 600px;">
+                    <pre class="mb-0 text-light small" id="logViewer" style="white-space: pre-wrap; font-family: 'DM Mono', monospace; color: #a9b7c6 !important;">{{ modsec_log if modsec_log else "No entries found." }}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .nav-pills .nav-link { color: #64748b; font-weight: 500; padding: 0.75rem 1.25rem; }
+    .nav-pills .nav-link.active { background-color: #3b82f6; color: white; }
+    .card-select:hover { cursor: pointer; border-color: #3b82f6 !important; }
+    .font-monospace { font-family: 'DM Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important; border: 1px solid #e2e8f0; background-color: #f8fafc; }
+</style>
+
+<script>
+    function searchDomains() {
+        var input, filter, table, tr, td, i, txtValue;
+        input = document.getElementById("domainSearch");
+        filter = input.value.toUpperCase();
+        table = document.getElementById("domainsTable");
+        tr = table.getElementsByTagName("tr");
+        for (i = 1; i < tr.length; i++) {
+            td = tr[i].getElementsByTagName("td")[0];
+            if (td) {
+                txtValue = td.textContent || td.innerText;
+                if (txtValue.toUpperCase().indexOf(filter) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    function switchRulesTab(tab) {
+        var triggerEl = document.querySelector('#modsecTabs button[data-bs-target="#rules"]');
+        bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+        
+        var editorTabEl = document.querySelector('#' + tab + '-conf-tab') || document.querySelector('#' + tab + '-rules-tab');
+        if (editorTabEl) bootstrap.Tab.getOrCreateInstance(editorTabEl).show();
+    }
+
+    function filterLogsByDomain(domain) {
+        window.location.href = "{{ url_for('modsecurity') }}?domain=" + domain + "#logs";
+    }
+
+    function refreshLogs() {
+        // In a full implementation, this could use AJAX.
+        // For now, we simple reload with current filter.
+        var domain = document.getElementById('logDomainFilter').value;
+        filterLogsByDomain(domain);
+    }
+
+    // Auto-scroll log viewer to bottom
+    window.onload = function() {
+        var container = document.getElementById('logViewerContainer');
+        if (container) container.scrollTop = container.scrollHeight;
+        
+        // Handle deep linking to tabs
+        var hash = window.location.hash;
+        if (hash) {
+            var triggerEl = document.querySelector('#modsecTabs button[data-bs-target="' + hash + '"]');
+            if (triggerEl) bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+        }
+    };
+</script>
+
+</script>
+
+{% endif %}
+{% endblock %}
