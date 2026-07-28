@@ -100,8 +100,9 @@
                     </script>
                 {% elif me_status == 'active' %}
                     <div class="row align-items-center">
+                        {% if session.get('role') == 'admin' %}
                         <div class="col-md-6">
-                            <p class="mb-1"><strong>URL:</strong> <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express', '_blank')" class="text-decoration-none">/mongo-express</a></p>
+                            <p class="mb-1"><strong>URL:</strong> <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express/', '_blank')" class="text-decoration-none">/mongo-express/</a></p>
                             {% if me_creds %}
                             <p class="mb-1"><strong>Username:</strong> <code>{{ me_creds.username }}</code></p>
                             <p class="mb-0"><strong>Password:</strong>
@@ -111,7 +112,7 @@
                             {% endif %}
                         </div>
                         <div class="col-md-6 text-md-end mt-3 mt-md-0">
-                            <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express', '_blank')" class="btn btn-success me-2">
+                            <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express/', '_blank')" class="btn btn-success me-2">
                                 <i class="fas fa-external-link-alt me-1"></i> Open Mongo Express
                             </a>
                             <form method="POST" action="{{ url_for('databases.mongodb_route') }}" class="d-inline">
@@ -120,6 +121,13 @@
                                 <button type="submit" class="btn btn-outline-warning"><i class="fas fa-sync me-1"></i> Restart</button>
                             </form>
                         </div>
+                        {% else %}
+                        <div class="col-12 text-center">
+                            <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express/', '_blank')" class="btn btn-success">
+                                <i class="fas fa-external-link-alt me-1"></i> Open Mongo Express
+                            </a>
+                        </div>
+                        {% endif %}
                     </div>
                 {% else %}
                     <p class="text-muted mb-3">Mongo Express is installed but not running.</p>
