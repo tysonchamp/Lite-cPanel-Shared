@@ -101,10 +101,10 @@
         
         {% if session.get('role') == 'admin' %}
         <a href="{{ url_for('databases.mongodb_route') }}"><i class="fas fa-leaf text-success"></i> MongoDB</a>
-        <a href="{{ url_for('filemanager.ftp') }}"><i class="fas fa-folder-open"></i> FTP</a>
         {% endif %}
         
         <a href="{{ url_for('filemanager.filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
+        <a href="{{ url_for('filemanager.ftp') }}"><i class="fas fa-folder-open"></i> FTP Accounts</a>
         <a href="{{ url_for('wordpress.wordpress') }}"><i class="fab fa-wordpress"></i> WordPress</a>
         
         {% if session.get('role') == 'admin' %}
