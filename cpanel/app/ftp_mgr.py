@@ -104,6 +104,10 @@ def ensure_system_user(username, directory, password=None):
                 jail_root = f"/home/{parts[2]}"
                 home_dir = directory.replace(jail_root, '')
                 if not home_dir: home_dir = "/"
+                
+                # Create a symlink for OpenSSH ChrootDirectory
+                run_system_command(['mkdir', '-p', '/var/sftp_jails'])
+                run_system_command(['ln', '-sfn', jail_root, f'/var/sftp_jails/{username}'])
             else:
                 home_dir = "/"
             sftp_group = 'lite_sftp_home'
@@ -389,7 +393,7 @@ def toggle_sftp(enable=True):
             new_lines.append('    PasswordAuthentication yes\n')
             
             new_lines.append('\nMatch Group lite_sftp_home\n')
-            new_lines.append('    ChrootDirectory /home/%u\n')
+            new_lines.append('    ChrootDirectory /var/sftp_jails/%u\n')
             new_lines.append('    ForceCommand internal-sftp\n')
             new_lines.append('    AllowTcpForwarding no\n')
             new_lines.append('    X11Forwarding no\n')

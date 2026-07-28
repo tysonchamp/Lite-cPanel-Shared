@@ -137,7 +137,12 @@
                                         {{ user.directory }}
                                     {% else %}
                                         {% set relative = user.directory | replace(user_home, '') %}
-                                        /{{ relative | trim('/') }}
+                                        {% set trim_relative = relative | trim('/') %}
+                                        {% if not trim_relative %}
+                                            <span class="text-primary"><i class="fas fa-home"></i> / (Root)</span>
+                                        {% else %}
+                                            /{{ trim_relative }}
+                                        {% endif %}
                                     {% endif %}
                                 </td>
                                 <td class="align-middle text-end pe-3">
