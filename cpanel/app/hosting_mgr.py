@@ -19,6 +19,7 @@ def _init_db(conn):
             name TEXT PRIMARY KEY,
             max_domains INTEGER,
             max_databases INTEGER,
+            max_mongodb INTEGER DEFAULT 0,
             max_nextjs INTEGER
         )
     ''')
@@ -45,6 +46,11 @@ def _init_db(conn):
     except sqlite3.OperationalError:
         pass # Column already exists
         
+    try:
+        cursor.execute("ALTER TABLE plans ADD COLUMN max_mongodb INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS nextjs_ports (
             domain TEXT PRIMARY KEY,
@@ -64,12 +70,13 @@ def get_plans():
         plans[row['name']] = {
             "max_domains": row['max_domains'],
             "max_databases": row['max_databases'],
+            "max_mongodb": row['max_mongodb'],
             "max_nextjs": row['max_nextjs']
         }
     conn.close()
     return plans
 
-def add_plan(name, max_domains, max_databases, max_nextjs):
+def add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb=0):
     conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM plans WHERE name = ?", (name,))
@@ -78,8 +85,8 @@ def add_plan(name, max_domains, max_databases, max_nextjs):
         return False, "Plan already exists."
     
     cursor.execute(
-        "INSERT INTO plans (name, max_domains, max_databases, max_nextjs) VALUES (?, ?, ?, ?)",
-        (name, int(max_domains), int(max_databases), int(max_nextjs))
+        "INSERT INTO plans (name, max_domains, max_databases, max_nextjs, max_mongodb) VALUES (?, ?, ?, ?, ?)",
+        (name, int(max_domains), int(max_databases), int(max_nextjs), int(max_mongodb))
     )
     conn.commit()
     conn.close()
@@ -116,6 +123,7 @@ def get_users():
             "main_domain": row['main_domain'] if 'main_domain' in row.keys() else '',
             "domains": [],
             "databases": [],
+            "mongodb": [],
             "nextjs_apps": []
         }
         
@@ -148,6 +156,7 @@ def get_user_plan_limits(username):
         return {
             "max_domains": row['max_domains'],
             "max_databases": row['max_databases'],
+            "max_mongodb": row['max_mongodb'],
             "max_nextjs": row['max_nextjs']
         }
     return None
@@ -263,7 +272,7 @@ def can_add_resource(username, resource_type):
     conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT p.max_domains, p.max_databases, p.max_nextjs 
+        SELECT p.max_domains, p.max_databases, p.max_mongodb, p.max_nextjs 
         FROM plans p 
         JOIN users u ON p.name = u.plan_name 
         WHERE u.username = ?
@@ -282,9 +291,11 @@ def can_add_resource(username, resource_type):
     
     if resource_type == "domains":
         return current_count < plan['max_domains']
-    elif resource_type == "databases":
+    elif resource_type == 'databases':
         return current_count < plan['max_databases']
-    elif resource_type == "nextjs_apps":
+    elif resource_type == 'mongodb':
+        return current_count < plan['max_mongodb']
+    elif resource_type == 'nextjs_apps':
         return current_count < plan['max_nextjs']
     return False
 

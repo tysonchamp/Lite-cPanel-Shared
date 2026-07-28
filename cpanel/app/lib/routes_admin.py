@@ -18,10 +18,11 @@ def admin_plans():
             max_domains = request.form.get('max_domains', 0)
             max_databases = request.form.get('max_databases', 0)
             max_nextjs = request.form.get('max_nextjs', 0)
+            max_mongodb = request.form.get('max_mongodb', 0)
             if not name:
                 flash('Plan name is required.', 'danger')
             else:
-                ok, msg = add_plan(name, max_domains, max_databases, max_nextjs)
+                ok, msg = add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb)
                 flash(msg, 'success' if ok else 'danger')
         elif action == 'delete':
             name = request.form.get('name')

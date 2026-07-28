@@ -99,9 +99,7 @@
         <a href="{{ url_for('nextjs.process_manager') }}"><i class="fas fa-tasks text-warning"></i> Process Manager</a>
         <a href="{{ url_for('databases.databases') }}"><i class="fas fa-database"></i> Databases</a>
         
-        {% if session.get('role') == 'admin' %}
         <a href="{{ url_for('databases.mongodb_route') }}"><i class="fas fa-leaf text-success"></i> MongoDB</a>
-        {% endif %}
         
         <a href="{{ url_for('filemanager.filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
         <a href="{{ url_for('filemanager.ftp') }}"><i class="fas fa-folder-open"></i> FTP Accounts</a>

@@ -76,23 +76,18 @@ def databases():
 @databases_bp.route('/mongodb', methods=['GET', 'POST'])
 @login_required
 def mongodb_route():
+    role = session.get('role')
+    username = session.get('username')
     is_installed = check_mongodb_installed()
     
     if request.method == 'POST':
         action = request.form.get('action')
         
         if action == 'install':
+            if role != 'admin':
+                flash("Access denied.", "danger")
+                return redirect(url_for('databases.mongodb_route'))
             success, msg = install_mongodb()
-            flash(msg, 'success' if success else 'danger')
-            return redirect(url_for('databases.mongodb_route'))
-        
-        if action == 'install_express':
-            success, msg = install_mongo_express()
-            flash(msg, 'success' if success else 'danger')
-            return redirect(url_for('databases.mongodb_route'))
-        
-        if action == 'restart_express':
-            success, msg = restart_mongo_express()
             flash(msg, 'success' if success else 'danger')
             return redirect(url_for('databases.mongodb_route'))
             
@@ -111,7 +106,7 @@ def mongodb_route():
                 flash(f"Validation failed: {e1 or e2}", "danger")
                 return redirect(url_for('databases.mongodb_route'))
                 
-            success, message = create_mongo_db(db_name, db_user, db_pass)
+            success, message = create_mongo_db(db_name, db_user, db_pass, role, username)
             flash(message, 'success' if success else 'danger')
             
         elif action == 'delete':
@@ -120,7 +115,7 @@ def mongodb_route():
             if not v:
                 flash(f"Validation failed: {e}", "danger")
                 return redirect(url_for('databases.mongodb_route'))
-            success, message = delete_mongo_db(db_name)
+            success, message = delete_mongo_db(db_name, role, username)
             flash(message, 'success' if success else 'danger')
             
         elif action == 'change_password':
@@ -134,16 +129,43 @@ def mongodb_route():
                 flash(f"Validation failed: {e1 or e2}", "danger")
                 return redirect(url_for('databases.mongodb_route'))
                 
+            if role == 'user':
+                if not db_name.startswith(f"{username}_"):
+                    flash("Access denied.", "danger")
+                    return redirect(url_for('databases.mongodb_route'))
+                    
             success, message = change_mongo_pass(db_name, db_user, new_pass)
             flash(message, 'success' if success else 'danger')
             
+        elif action == 'install_express':
+            if role != 'admin':
+                flash("Access denied.", "danger")
+                return redirect(url_for('databases.mongodb_route'))
+            success, msg = install_mongo_express()
+            flash(msg, 'success' if success else 'danger')
+            
+        elif action == 'restart_express':
+            if role != 'admin':
+                flash("Access denied.", "danger")
+                return redirect(url_for('databases.mongodb_route'))
+            success, msg = restart_mongo_express()
+            flash(msg, 'success' if success else 'danger')
+            
         return redirect(url_for('databases.mongodb_route'))
-        
-    db_details = get_mongo_dbs() if is_installed else []
+
+    db_details = get_mongo_dbs(role, username) if is_installed else []
+    me_installed = check_mongo_express_installed()
     me_status = get_mongo_express_status() if is_installed else 'not_installed'
     me_creds = get_mongo_express_credentials() if me_status == 'active' else {}
-    return render_template('mongodb.html', is_installed=is_installed, db_details=db_details,
-                           me_status=me_status, me_creds=me_creds)
+    
+    return render_template(
+        'mongodb.html', 
+        is_installed=is_installed, 
+        db_details=db_details,
+        me_installed=me_installed,
+        me_status=me_status,
+        me_creds=me_creds
+    )
 
 @databases_bp.route('/phpmyadmin-login')
 @login_required

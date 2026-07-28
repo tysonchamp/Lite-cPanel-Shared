@@ -20,8 +20,12 @@
                         <input type="number" name="max_domains" class="form-control" required value="1" min="0">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label text-muted small fw-bold">Max Databases</label>
+                        <label class="form-label text-muted small fw-bold">Max MySQL Databases</label>
                         <input type="number" name="max_databases" class="form-control" required value="1" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold">Max MongoDB Databases</label>
+                        <input type="number" name="max_mongodb" class="form-control" required value="0" min="0">
                     </div>
                     <div class="mb-3">
                         <label class="form-label text-muted small fw-bold">Max Next.js Apps</label>
@@ -42,7 +46,8 @@
                             <tr>
                                 <th class="border-0 text-muted small ps-4">Plan Name</th>
                                 <th class="border-0 text-muted small text-center">Domains</th>
-                                <th class="border-0 text-muted small text-center">Databases</th>
+                                <th class="border-0 text-muted small text-center">MySQL</th>
+                                <th class="border-0 text-muted small text-center">MongoDB</th>
                                 <th class="border-0 text-muted small text-center">Next.js</th>
                                 <th class="border-0 text-muted small text-end pe-4">Actions</th>
                             </tr>
@@ -53,6 +58,7 @@
                                 <td class="ps-4 fw-bold text-dark">{{ name }}</td>
                                 <td class="text-center">{{ details.max_domains }}</td>
                                 <td class="text-center">{{ details.max_databases }}</td>
+                                <td class="text-center">{{ details.max_mongodb }}</td>
                                 <td class="text-center">{{ details.max_nextjs }}</td>
                                 <td class="text-end pe-4">
                                     <form action="{{ url_for('admin.admin_plans') }}" method="POST" class="d-inline">
@@ -65,7 +71,7 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">No plans found. Create one to get started.</td>
+                                <td colspan="6" class="text-center py-4 text-muted">No plans found. Create one to get started.</td>
                             </tr>
                             {% endfor %}
                         </tbody>

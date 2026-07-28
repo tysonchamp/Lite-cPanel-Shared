@@ -42,7 +42,7 @@ def get_mongo_client():
     except Exception:
         return None
 
-def get_databases():
+def get_databases(role='admin', username=None):
     client = get_mongo_client()
     if not client: return []
     try:
@@ -62,6 +62,12 @@ def get_databases():
                     listed_dbs.add(db_name)
         except Exception:
             pass
+            
+        if role == 'user' and username:
+            from hosting_mgr import get_users
+            user_db = get_users()
+            user_mongodb = user_db.get(username, {}).get('mongodb', [])
+            listed_dbs = {db for db in listed_dbs if db in user_mongodb}
         
         result = []
         for db_name in sorted(listed_dbs):
@@ -91,22 +97,41 @@ def get_databases():
     except Exception:
         return []
 
-def create_database(db_name, db_user, db_pass):
+def create_database(db_name, db_user, db_pass, role='admin', username=None):
+    if role == 'user' and username:
+        from hosting_mgr import can_add_resource, add_user_resource
+        if not can_add_resource(username, 'mongodb'):
+            return False, "MongoDB Database limit reached for your plan."
+            
+        if not db_name.startswith(f"{username}_"):
+            db_name = f"{username}_{db_name}"
+        if not db_user.startswith(f"{username}_"):
+            db_user = f"{username}_{db_user}"
+
     client = get_mongo_client()
     if not client: return False, "Could not connect to MongoDB."
     try:
         db = client[db_name]
         db.command("createUser", db_user, pwd=db_pass, roles=["dbOwner"])
         # Insert a metadata doc so the database actually materializes
-        # (MongoDB won't show a DB in list_database_names until it has data)
         db['_init'].insert_one({'_created_by': 'lite-cpanel', 'info': 'initial collection'})
+        
+        if role == 'user' and username:
+            from hosting_mgr import add_user_resource
+            add_user_resource(username, 'mongodb', db_name)
+            
         return True, "Database and user created successfully."
     except Exception as e:
         return False, f"Error: {str(e)}"
 
-def delete_database(db_name):
+def delete_database(db_name, role='admin', username=None):
     client = get_mongo_client()
     if not client: return False, "Could not connect to MongoDB."
+    
+    if role == 'user' and username:
+        if not db_name.startswith(f"{username}_"):
+            return False, "Access denied."
+            
     try:
         # Drop all users belonging to this DB, then drop the DB
         try:
@@ -124,6 +149,11 @@ def delete_database(db_name):
         except Exception:
             pass
         client.drop_database(db_name)
+        
+        if role == 'user' and username:
+            from hosting_mgr import remove_user_resource
+            remove_user_resource(username, 'mongodb', db_name)
+            
         return True, "Database deleted successfully."
     except Exception as e:
         return False, f"Error: {str(e)}"
