@@ -527,6 +527,14 @@ main() {
     if ! is_stack_installed; then
         echo -e "${GREEN}Initial installation: Auto-installing Hybrid Stack...${NC}"
         install_hybrid_stack
+        if [ -n "$AUTO_STACK_CHOICE" ]; then
+            exit 0
+        fi
+    fi
+    
+    # If called from an automated script, exit now so we don't show the menu
+    if [ -n "$AUTO_STACK_CHOICE" ]; then
+        exit 0
     fi
 
     if [ -n "$1" ]; then
