@@ -13,22 +13,9 @@ echo "======================================"
 echo "    System Stack & cPanel Installer   "
 echo "======================================"
 
-echo "Choose your preferred web stack:"
-echo "1. Apache LAMP Stack"
-echo "2. NGINX Stack"
-echo "3. NGINX + Apache + PHP-FPM (Hybrid)"
-echo -n "Select option (1-3): "
-read stack_choice
-
-if [[ ! "$stack_choice" =~ ^[1-3]$ ]]; then
-    echo "Invalid choice. Exiting."
-    exit 1
-fi
-
-echo -n "Do you want to install MongoDB? (y/n): "
-read install_mongo
-
-export INSTALL_MONGODB=$install_mongo
+# Automatically set choice to 3 (Hybrid: NGINX + Apache + PHP-FPM)
+export AUTO_STACK_CHOICE=3
+export INSTALL_MONGODB="n"
 
 echo ""
 echo "======================================"
@@ -38,8 +25,7 @@ echo "======================================"
 apt-get update
 apt-get upgrade -y
 
-# Set auto stack choice and execute script normally to preserve stdin
-export AUTO_STACK_CHOICE=$stack_choice
+# Execute script normally
 bash "$SCRIPT_DIR/scripts/web-stack-installer.sh"
 
 echo ""
