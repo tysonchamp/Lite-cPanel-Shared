@@ -88,20 +88,28 @@ def ensure_system_user(username, directory, password=None):
     Ensures a system user exists with the correct directory and group.
     """
     try:
-        run_system_command(['groupadd', '-f', 'lite_sftp'])
+        run_system_command(['groupadd', '-f', 'lite_sftp_www'])
+        run_system_command(['groupadd', '-f', 'lite_sftp_home'])
         
-        # Determine home for jail
+        # Determine home for jail and appropriate group
         if directory.startswith('/var/www'):
-            home_dir = "/var/www"
+            home_dir = directory.replace('/var/www', '')
+            if not home_dir: home_dir = "/"
+            sftp_group = 'lite_sftp_www'
         elif directory.startswith('/home/'):
-            # e.g., /home/username/public_html -> home_dir = /home/username
+            # e.g., /home/username/public_html -> home_dir = /public_html
             parts = directory.split('/')
             if len(parts) >= 3:
-                home_dir = f"/home/{parts[2]}"
+                # The jail root is /home/username. The home_dir relative to jail is the rest.
+                jail_root = f"/home/{parts[2]}"
+                home_dir = directory.replace(jail_root, '')
+                if not home_dir: home_dir = "/"
             else:
-                home_dir = directory
+                home_dir = "/"
+            sftp_group = 'lite_sftp_home'
         else:
             home_dir = "/"
+            sftp_group = 'lite_sftp_home'
             
         # Try to find if user exists
         user_exists = False
@@ -113,16 +121,14 @@ def ensure_system_user(username, directory, password=None):
 
         if user_exists:
             # Update existing
-            run_system_command(['usermod', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+            run_system_command(['usermod', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', sftp_group, username])
         else:
             # Create new
-            # -N tells useradd NOT to create a group with the same name as the user
-            # We then try to use the username as the group if it exists, or let it use default
-            res = run_system_command(['useradd', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+            res = run_system_command(['useradd', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', sftp_group, username])
             if res.returncode != 0:
-                # If it failed because the GROUP already exists, try with -g to use that group
+                # Try with -g if group exists
                 if "group" in (res.stderr or "") and "exists" in (res.stderr or ""):
-                    res = run_system_command(['useradd', '-g', username, '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+                    res = run_system_command(['useradd', '-g', username, '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', sftp_group, username])
                 
                 if res.returncode != 0 and "already exists" not in (res.stderr or ""):
                     raise Exception(f"useradd failed (status {res.returncode}): {res.stderr}")
@@ -375,8 +381,15 @@ def toggle_sftp(enable=True):
         if enable:
             # Always append at the very bottom
             new_lines.append('\n# Added by Lite-cPanel for Jailed SFTP\n')
-            new_lines.append('Match Group lite_sftp\n')
-            new_lines.append('    ChrootDirectory %h\n')
+            new_lines.append('Match Group lite_sftp_www\n')
+            new_lines.append('    ChrootDirectory /var/www\n')
+            new_lines.append('    ForceCommand internal-sftp\n')
+            new_lines.append('    AllowTcpForwarding no\n')
+            new_lines.append('    X11Forwarding no\n')
+            new_lines.append('    PasswordAuthentication yes\n')
+            
+            new_lines.append('\nMatch Group lite_sftp_home\n')
+            new_lines.append('    ChrootDirectory /home/%u\n')
             new_lines.append('    ForceCommand internal-sftp\n')
             new_lines.append('    AllowTcpForwarding no\n')
             new_lines.append('    X11Forwarding no\n')
@@ -416,7 +429,11 @@ def toggle_ftp_user_status(username, enable=True):
             run_system_command(['chmod', '770', directory])
             run_system_command(['chmod', 'g+s', directory])
 
+            # Ensure system user is properly configured with correct jail groups
+            ensure_system_user(username, directory)
+            
             # Recursively ensure everything inside is manageable by user and web server
+            # We explicitly skip the jail root itself using -mindepth 1
             run_system_command(['find', directory, '-mindepth', '1', '-exec', 'chown', f'{username}:{username}', '{}', '+'])
             run_system_command(['find', directory, '-mindepth', '1', '-type', 'd', '-exec', 'chmod', '770', '{}', '+'])
             run_system_command(['find', directory, '-mindepth', '1', '-type', 'f', '-exec', 'chmod', '660', '{}', '+'])
