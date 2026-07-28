@@ -90,10 +90,19 @@ def ensure_system_user(username, directory, password=None):
     try:
         run_system_command(['groupadd', '-f', 'lite_sftp'])
         
-        # Determine relative home for jail
-        relative_home = directory.replace('/var/www', '')
-        if not relative_home: relative_home = "/"
-        
+        # Determine home for jail
+        if directory.startswith('/var/www'):
+            home_dir = "/var/www"
+        elif directory.startswith('/home/'):
+            # e.g., /home/username/public_html -> home_dir = /home/username
+            parts = directory.split('/')
+            if len(parts) >= 3:
+                home_dir = f"/home/{parts[2]}"
+            else:
+                home_dir = directory
+        else:
+            home_dir = "/"
+            
         # Try to find if user exists
         user_exists = False
         try:
@@ -104,16 +113,16 @@ def ensure_system_user(username, directory, password=None):
 
         if user_exists:
             # Update existing
-            run_system_command(['usermod', '-d', relative_home, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+            run_system_command(['usermod', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
         else:
             # Create new
             # -N tells useradd NOT to create a group with the same name as the user
             # We then try to use the username as the group if it exists, or let it use default
-            res = run_system_command(['useradd', '-d', relative_home, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+            res = run_system_command(['useradd', '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
             if res.returncode != 0:
                 # If it failed because the GROUP already exists, try with -g to use that group
                 if "group" in (res.stderr or "") and "exists" in (res.stderr or ""):
-                    res = run_system_command(['useradd', '-g', username, '-d', relative_home, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
+                    res = run_system_command(['useradd', '-g', username, '-d', home_dir, '-s', '/usr/sbin/nologin', '-G', 'lite_sftp', username])
                 
                 if res.returncode != 0 and "already exists" not in (res.stderr or ""):
                     raise Exception(f"useradd failed (status {res.returncode}): {res.stderr}")
@@ -250,12 +259,14 @@ def create_ftp_user(username, password, directory):
         return False, "pure-ftpd is not installed."
 
     try:
-        if not directory.startswith('/var/www'):
-            return False, "Access denied: FTP directory must be within /var/www"
+        if not (directory.startswith('/var/www') or directory.startswith('/home/')):
+            return False, "Access denied: FTP directory must be within /var/www or /home"
             
         if not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
-            subprocess.run(['chown', '-R', 'www-data:www-data', directory], check=True)
+            # Only set www-data ownership for /var/www paths, /home paths handled in toggle
+            if directory.startswith('/var/www'):
+                subprocess.run(['chown', '-R', 'www-data:www-data', directory], check=True)
 
         # 1. Create Virtual User (Step 1: Add to text file)
         passwd_file = '/etc/pure-ftpd/pureftpd.passwd'
@@ -371,7 +382,7 @@ def toggle_sftp(enable=True):
             # Always append at the very bottom
             new_lines.append('\n# Added by Lite-cPanel for Jailed SFTP\n')
             new_lines.append('Match Group lite_sftp\n')
-            new_lines.append('    ChrootDirectory /var/www\n')
+            new_lines.append('    ChrootDirectory %h\n')
             new_lines.append('    ForceCommand internal-sftp\n')
             new_lines.append('    AllowTcpForwarding no\n')
             new_lines.append('    X11Forwarding no\n')
@@ -417,9 +428,16 @@ def toggle_ftp_user_status(username, enable=True):
             run_system_command(['find', directory, '-mindepth', '1', '-type', 'f', '-exec', 'chmod', '660', '{}', '+'])
             run_system_command(['find', directory, '-mindepth', '1', '-type', 'd', '-exec', 'chmod', 'g+s', '{}', '+'])
             
-            # Ensure the parent (/var/www) is 755 (SSH requirement for jail root)
-            run_system_command(['chown', 'root:root', '/var/www'])
-            run_system_command(['chmod', '755', '/var/www'])
+            # Ensure the jail root is 755 (SSH requirement for jail root)
+            if directory.startswith('/var/www'):
+                run_system_command(['chown', 'root:root', '/var/www'])
+                run_system_command(['chmod', '755', '/var/www'])
+            elif directory.startswith('/home/'):
+                parts = directory.split('/')
+                if len(parts) >= 3:
+                    jail_root = f"/home/{parts[2]}"
+                    run_system_command(['chown', 'root:root', jail_root])
+                    run_system_command(['chmod', '755', jail_root])
 
             try:
                 run_system_command(['systemctl', 'restart', 'apache2'])

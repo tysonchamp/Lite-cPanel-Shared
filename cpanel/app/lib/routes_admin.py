@@ -3,6 +3,7 @@ from auth import login_required, admin_required
 
 from hosting_mgr import get_plans, add_plan, delete_plan, get_users, add_user, delete_user
 from domains_mgr import add_virtual_host
+from ftp_mgr import create_ftp_user, toggle_ftp_user_status, check_pureftpd_installed
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -53,6 +54,16 @@ def admin_users():
                         flash(msg, 'warning')
                     else:
                         flash(msg, 'success')
+                        
+                        # Auto-create FTP User
+                        if check_pureftpd_installed():
+                            user_dir = f"/home/{username}/public_html"
+                            ftp_ok, ftp_msg = create_ftp_user(username, password, user_dir)
+                            if ftp_ok:
+                                toggle_ftp_user_status(username, enable=True)
+                                flash(f"FTP account '{username}' auto-created and enabled.", 'success')
+                            else:
+                                flash(f"Failed to auto-create FTP account: {ftp_msg}", 'warning')
                 else:
                     flash(msg, 'danger')
         elif action == 'delete':

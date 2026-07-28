@@ -10,6 +10,7 @@
         unavailable.</p>
 </div>
 {% else %}
+{% if is_admin %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card shadow-sm border-0">
@@ -46,6 +47,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="row mb-4">
     <div class="col-12">
@@ -69,9 +71,14 @@
                     <div class="col-md-4">
                         <label class="form-label">Directory</label>
                         <div class="input-group">
-                            <span class="input-group-text bg-light text-muted">/var/www/</span>
+                            {% if is_admin %}
                             <input type="text" class="form-control" name="directory"
-                                placeholder="example.com/public_html" required>
+                                placeholder="/var/www/example.com or /home/user/public_html" required>
+                            {% else %}
+                            <span class="input-group-text bg-light text-muted" title="{{ user_home }}/">/</span>
+                            <input type="text" class="form-control" name="directory"
+                                placeholder="subfolder/ (optional)">
+                            {% endif %}
                         </div>
                     </div>
                     <div class="col-12 mt-3">
@@ -125,7 +132,14 @@
                                     </form>
                                 </td>
                                 <td class="align-middle fw-bold">{{ user.username }}</td>
-                                <td class="align-middle font-monospace small text-muted">{{ user.directory }}</td>
+                                <td class="align-middle font-monospace small text-muted">
+                                    {% if is_admin %}
+                                        {{ user.directory }}
+                                    {% else %}
+                                        {% set relative = user.directory | replace(user_home, '') %}
+                                        /{{ relative | trim('/') }}
+                                    {% endif %}
+                                </td>
                                 <td class="align-middle text-end pe-3">
                                     <button class="btn btn-xs btn-outline-secondary me-1" data-bs-toggle="modal"
                                         data-bs-target="#passwordModal{{ loop.index }}" style="font-size: 11px;"><i
