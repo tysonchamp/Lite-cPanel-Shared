@@ -96,12 +96,29 @@ fi
 
 # Install Node.js
 install_nodejs() {
-    echo -e "${GREEN}Installing Node.js via NodeSource...${NC}"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get install -y nodejs
+    echo -e "${GREEN}Installing Node.js via NVM...${NC}"
+    export NVM_DIR="$HOME/.nvm"
+    
+    # Ensure NVM is installed
+    if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+    fi
+    
+    . "$NVM_DIR/nvm.sh"
+    
+    # Ensure Node 24 is installed
+    if [[ ! "$(node -v 2>/dev/null)" == v24* ]]; then
+        nvm install 24
+    fi
+    nvm use 24
     
     echo -e "${GREEN}Installing PM2 globally...${NC}"
     npm install -g pm2
+    
+    # Make node, npm and pm2 available globally for systemd and python scripts
+    ln -sf $(which node) /usr/bin/node
+    ln -sf $(which npm) /usr/bin/npm
+    ln -sf $(which pm2) /usr/bin/pm2
 }
 # Install Node.js
 install_nodejs
