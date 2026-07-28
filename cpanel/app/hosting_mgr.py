@@ -106,7 +106,7 @@ def get_users():
         username = row['username']
         users[username] = {
             "plan": row['plan_name'],
-            "main_domain": row.get('main_domain', ''),
+            "main_domain": row['main_domain'] if 'main_domain' in row.keys() else '',
             "domains": [],
             "databases": [],
             "nextjs_apps": []
