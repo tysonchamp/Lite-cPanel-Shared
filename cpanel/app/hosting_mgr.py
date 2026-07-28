@@ -45,6 +45,13 @@ def _init_db(conn):
     except sqlite3.OperationalError:
         pass # Column already exists
         
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS nextjs_ports (
+            domain TEXT PRIMARY KEY,
+            port INTEGER UNIQUE
+        )
+    ''')
+        
     conn.commit()
 
 # Plans Management
@@ -280,6 +287,40 @@ def can_add_resource(username, resource_type):
     elif resource_type == "nextjs_apps":
         return current_count < plan['max_nextjs']
     return False
+
+def get_nextjs_port(domain):
+    """Retrieve the allocated port for a domain, if it exists."""
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT port FROM nextjs_ports WHERE domain = ?", (domain,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row['port']
+    return None
+
+def allocate_nextjs_port(domain):
+    """Allocates and saves a new unique port for a Next.js app, starting from 3000."""
+    existing_port = get_nextjs_port(domain)
+    if existing_port:
+        return existing_port
+        
+    conn = _get_conn()
+    cursor = conn.cursor()
+    
+    # Get max port currently assigned
+    cursor.execute("SELECT MAX(port) as max_port FROM nextjs_ports")
+    row = cursor.fetchone()
+    max_port = row['max_port'] if row and row['max_port'] is not None else 2999
+    
+    new_port = max_port + 1
+    
+    cursor.execute("INSERT INTO nextjs_ports (domain, port) VALUES (?, ?)", (domain, new_port))
+    conn.commit()
+    conn.close()
+    
+    return new_port
+
 
 def get_owner_of_resource(resource_type, resource_name):
     """Find which user owns a domain, db, etc."""

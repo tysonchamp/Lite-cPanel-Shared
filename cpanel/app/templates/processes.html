@@ -49,44 +49,33 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="row g-3 align-items-end">
+                <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="row g-3 align-items-end" id="processForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="action" value="add_app">
+                    <input type="hidden" name="action" id="formAction" value="add_app">
+                    
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Select Next.js Domain</label>
+                        <select name="domain" id="domainSelect" class="form-select" required>
+                            <option value="">-- Choose a Domain --</option>
+                            {% for app in configured_apps %}
+                            <option value="{{ app.domain }}">{{ app.domain }} (Auto Port: {{ app.port }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
                     <div class="col-md-3">
-                        <label class="form-label small fw-bold">App Name</label>
-                        <input type="text" id="appName" class="form-control" name="name" placeholder="my-app" required>
-                    </div>
-                    <div class="col-md-5">
-                        <label class="form-label small fw-bold">App Directory Path</label>
-                        <div class="input-group">
-                            <span class="input-group-text">/var/www/</span>
-                            <input type="text" id="appPath" class="form-control" name="path" value=""
-                                placeholder="my-domain.com" required oninput="updateFullResult()">
-                        </div>
-                        <input type="hidden" name="full_path" id="fullPath">
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label small fw-bold">Port</label>
-                        <div class="form-text" style="font-size: 0.65rem;">Optional if using ecosystem.config.js</div>
-                        <input type="number" id="appPort" class="form-control" name="port" placeholder="3000">
-                    </div>
-                    <div class="col-md-2">
                         <div class="d-flex gap-1">
-                            <button type="submit" class="btn btn-success flex-grow-1"><i class="fas fa-play me-1"></i>
-                                Start</button>
+                            <button type="submit" class="btn btn-success flex-grow-1"><i class="fas fa-play me-1"></i> Start App</button>
                             <div class="dropdown">
-                                <button class="btn btn-outline-secondary dropdown-toggle" type="button"
-                                    data-bs-toggle="dropdown"></button>
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"></button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow">
                                     <li>
-                                        <button type="button" class="dropdown-item"
-                                            onclick="submitNpmAction('npm_install')">
+                                        <button type="button" class="dropdown-item" onclick="submitAction('npm_install')">
                                             <i class="fas fa-box-open me-2 text-primary"></i> NPM Install
                                         </button>
                                     </li>
                                     <li>
-                                        <button type="button" class="dropdown-item"
-                                            onclick="submitNpmAction('npm_build')">
+                                        <button type="button" class="dropdown-item" onclick="submitAction('npm_build')">
                                             <i class="fas fa-hammer me-2 text-warning"></i> NPM Build
                                         </button>
                                     </li>
@@ -102,53 +91,24 @@
 
 <script>
     function quickFill(domain, port) {
-        document.getElementById('appName').value = domain.split('.')[0];
-        document.getElementById('appPath').value = domain;
-        document.getElementById('appPort').value = port;
-        updateFullResult();
-    }
-
-    function updateFullResult() {
-        const relative = document.getElementById('appPath').value;
-        // If it starts with / already, don't prepend /var/www/
-        if (relative.startsWith('/')) {
-            document.getElementById('fullPath').value = relative;
-        } else {
-            document.getElementById('fullPath').value = '/var/www/' + relative;
+        const select = document.getElementById('domainSelect');
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === domain) {
+                select.selectedIndex = i;
+                break;
+            }
         }
     }
 
-    // Ensure fullPath is updated on load and submit
-    document.addEventListener('DOMContentLoaded', updateFullResult);
-
-    function submitNpmAction(action) {
-        updateFullResult();
-        const path = document.getElementById('fullPath').value;
-        if (!path || path === '/var/www/') {
-            alert('Please enter the app directory path first.');
+    function submitAction(action) {
+        const domain = document.getElementById('domainSelect').value;
+        if (!domain) {
+            alert('Please select a domain first.');
             return;
         }
 
-        // Create a temporary form to submit the action
-        const tempForm = document.createElement('form');
-        tempForm.method = 'POST';
-        tempForm.action = '{{ url_for("nextjs.process_manager") }}';
-
-        const fields = {
-            'csrf_token': '{{ csrf_token() }}',
-            'action': action,
-            'path': path
-        };
-
-        for (const [key, value] of Object.entries(fields)) {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = key;
-            input.value = value;
-            tempForm.appendChild(input);
-        }
-
-        document.body.appendChild(tempForm);
+        const form = document.getElementById('processForm');
+        document.getElementById('formAction').value = action;
 
         // Show a loading state
         const btn = event.target.closest('button');
@@ -157,16 +117,8 @@
             btn.disabled = true;
         }
 
-        tempForm.submit();
+        form.submit();
     }
-
-    // Override the main form submit to use fullPath
-    document.querySelector('form[action="{{ url_for("nextjs.process_manager") }}"]').onsubmit = function () {
-        updateFullResult();
-        const pathInput = this.querySelector('input[name="path"]');
-        pathInput.value = document.getElementById('fullPath').value;
-        return true;
-    };
 </script>
 
 <div class="row">

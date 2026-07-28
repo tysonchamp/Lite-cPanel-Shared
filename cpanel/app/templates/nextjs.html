@@ -14,14 +14,11 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="add">
                     <div class="flex-grow-1" style="min-width: 250px;">
-                        <input type="text" class="form-control" name="domain" placeholder="example.com" required>
-                    </div>
-                    <div style="width: 150px;">
-                        <input type="number" class="form-control" name="port" placeholder="Port (e.g. 3000)" required min="1024" max="65535">
+                        <input type="text" class="form-control" name="domain" placeholder="Domain name (e.g. app.domain.com)" required>
                     </div>
                     <button type="submit" class="btn btn-primary text-nowrap"><i class="fas fa-plus me-2"></i> Create Proxy</button>
                 </form>
-                <small class="text-muted mt-2 d-block">This will configure a reverse proxy to forward traffic to the specified local port where your PM2 application is running.</small>
+                <small class="text-muted mt-2 d-block">This will configure a reverse proxy to forward traffic to an automatically assigned local port where your PM2 application will run.</small>
             </div>
         </div>
     </div>
