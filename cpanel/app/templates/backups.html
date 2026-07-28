@@ -11,7 +11,7 @@
                     <h5 class="card-title text-info"><i class="fas fa-hdd me-2"></i> System Backup</h5>
                     <p class="card-text text-muted mb-0">Manually trigger a full backup of all MySQL databases and the <code>/var/www</code> directory.</p>
                 </div>
-                <form method="POST" action="{{ url_for('backups') }}" class="mb-0">
+                <form method="POST" action="{{ url_for('system.backups') }}" class="mb-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="trigger_backup">
                     <button type="submit" class="btn btn-info text-white"><i class="fas fa-play-circle me-2"></i> Backup Now</button>
@@ -28,7 +28,7 @@
                 <h5 class="mb-0">Backup Configuration</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('backups') }}">
+                <form method="POST" action="{{ url_for('system.backups') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="save_settings">
                     
@@ -167,7 +167,7 @@
                                     {{ backup.size_mb }} MB
                                 </td>
                                 <td class="align-middle">
-                                    <form method="POST" action="{{ url_for('backups') }}" class="mb-0 d-inline-block">
+                                    <form method="POST" action="{{ url_for('system.backups') }}" class="mb-0 d-inline-block">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="action" value="delete_backup">
                                         <input type="hidden" name="filename" value="{{ backup.filename }}">

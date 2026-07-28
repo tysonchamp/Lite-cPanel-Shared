@@ -9,12 +9,12 @@
         <div class="card shadow-sm border-0">
             <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Create New Database</h5>
-                <a href="{{ url_for('phpmyadmin_login') }}" target="_blank" class="btn btn-sm btn-info text-white">
+                <a href="{{ url_for('databases.phpmyadmin_login') }}" target="_blank" class="btn btn-sm btn-info text-white">
                     <i class="fas fa-external-link-alt me-2"></i>phpMyAdmin
                 </a>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('databases') }}" class="row g-3">
+                <form method="POST" action="{{ url_for('databases.databases') }}" class="row g-3">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="create">
                     <div class="col-md-4">
@@ -108,7 +108,7 @@
 
                                 <!-- Drop DB -->
                                 <td class="text-end">
-                                    <form method="POST" action="{{ url_for('databases') }}" class="d-inline"
+                                    <form method="POST" action="{{ url_for('databases.databases') }}" class="d-inline"
                                           onsubmit="return confirm('Drop {{ db.name }}? This is permanent.');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="action" value="delete">
@@ -138,7 +138,7 @@
 <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="cpwLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('databases') }}">
+            <form method="POST" action="{{ url_for('databases.databases') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="change_password">
                 <input type="hidden" name="db_user" id="cpw_user">
@@ -172,7 +172,7 @@
 <div class="modal fade" id="hostModal" tabindex="-1" aria-labelledby="hostModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('databases') }}">
+            <form method="POST" action="{{ url_for('databases.databases') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="update_host">
                 <input type="hidden" name="db_name" id="host_db_name">

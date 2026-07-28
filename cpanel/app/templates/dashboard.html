@@ -231,7 +231,7 @@
 <script>
     async function fetchSysinfo() {
         try {
-            const res = await fetch("{{ url_for('api_sysinfo') }}");
+            const res = await fetch("{{ url_for('dashboard.api_sysinfo') }}");
             const data = await res.json();
             document.getElementById('cpuStat').innerText = `${data.cpu_percent}%`;
             document.getElementById('cpuProgress').style.width = `${data.cpu_percent}%`;
@@ -256,7 +256,7 @@
 
     async function fetchServices() {
         try {
-            const res = await fetch("{{ url_for('api_services') }}");
+            const res = await fetch("{{ url_for('dashboard.api_services') }}");
             const data = await res.json();
             let html = '<ul class="list-group list-group-flush">';
             for (let s of data.services) {
@@ -287,7 +287,7 @@
             formData.append('service_id', id);
             formData.append('csrf_token', '{{ csrf_token() }}');
 
-            const res = await fetch("{{ url_for('api_service_restart') }}", {
+            const res = await fetch("{{ url_for('dashboard.api_service_restart') }}", {
                 method: 'POST',
                 body: formData
             });

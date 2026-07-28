@@ -15,7 +15,7 @@
                     Installing the WAF framework natively via cPanel enables robust traffic inspection, deep request scanning, and integrates the high-security OWASP Core Rule Set.
                 </p>
                 
-                <form id="modsecInstallForm" method="POST" action="{{ url_for('modsecurity') }}" class="d-inline-block">
+                <form id="modsecInstallForm" method="POST" action="{{ url_for('system.modsecurity') }}" class="d-inline-block">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="install_modsec">
                     <button type="submit" class="btn btn-primary btn-lg px-5">
@@ -62,7 +62,7 @@
 
         try {
             const formData = new FormData(form);
-            const response = await fetch("{{ url_for('modsecurity') }}", {
+            const response = await fetch("{{ url_for('system.modsecurity') }}", {
                 method: 'POST',
                 body: formData
             });
@@ -171,7 +171,7 @@
                                     {% if profile.active %}
                                     <button class="btn btn-sm btn-success px-3" disabled><i class="fas fa-check me-1"></i>Active</button>
                                     {% else %}
-                                    <form method="POST" action="{{ url_for('modsecurity') }}" class="m-0">
+                                    <form method="POST" action="{{ url_for('system.modsecurity') }}" class="m-0">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="action" value="activate_profile">
                                         <input type="hidden" name="profile_id" value="{{ profile.id }}">
@@ -191,7 +191,7 @@
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">This setting controls the behavior of the rules engine globally.</p>
-                        <form method="POST" action="{{ url_for('modsecurity') }}" class="d-flex flex-wrap gap-3">
+                        <form method="POST" action="{{ url_for('system.modsecurity') }}" class="d-flex flex-wrap gap-3">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="set_modsec_status">
                             
@@ -243,7 +243,7 @@
                             <span class="small text-muted">Version 3.0.x</span>
                         </div>
                         <div class="d-grid gap-2">
-                            <form method="POST" action="{{ url_for('modsecurity') }}" class="d-grid shadow-none">
+                            <form method="POST" action="{{ url_for('system.modsecurity') }}" class="d-grid shadow-none">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="test_config">
                                 <button type="submit" class="btn btn-outline-info btn-sm">
@@ -252,7 +252,7 @@
                             </form>
                             <hr>
                             <div class="text-center small fw-bold mb-2">Webserver Controls</div>
-                            <form method="POST" action="{{ url_for('modsecurity') }}" class="row g-2 shadow-none">
+                            <form method="POST" action="{{ url_for('system.modsecurity') }}" class="row g-2 shadow-none">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <div class="col-6">
                                     <button type="submit" name="action" value="reload" class="btn btn-outline-secondary btn-sm w-100">
@@ -329,7 +329,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-end pe-4">
-                                    <form method="POST" action="{{ url_for('modsecurity') }}" class="d-inline">
+                                    <form method="POST" action="{{ url_for('system.modsecurity') }}" class="d-inline">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="action" value="toggle_domain">
                                         <input type="hidden" name="domain" value="{{ d.domain }}">
@@ -338,7 +338,7 @@
                                             {{ "Disable" if d.status else "Enable" }} ModSec
                                         </button>
                                     </form>
-                                    <a href="{{ url_for('modsecurity') }}?domain={{ d.domain }}#logs" class="btn btn-sm btn-outline-secondary ms-2" title="View Logs">
+                                    <a href="{{ url_for('system.modsecurity') }}?domain={{ d.domain }}#logs" class="btn btn-sm btn-outline-secondary ms-2" title="View Logs">
                                         <i class="fas fa-list"></i>
                                     </button>
                                 </td>
@@ -370,7 +370,7 @@
             <div class="card-body">
                 <div class="tab-content">
                     <div class="tab-pane fade show active" id="main-conf">
-                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                        <form method="POST" action="{{ url_for('system.modsecurity') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="save_config">
                             <input type="hidden" name="file_type" value="main">
@@ -382,7 +382,7 @@
                         <div class="alert alert-success border-0 small mb-3">
                             <i class="fas fa-lightbulb me-2"></i>You can add your own custom ModSecurity rules here. These rules are applied after the main ruleset.
                         </div>
-                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                        <form method="POST" action="{{ url_for('system.modsecurity') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="save_config">
                             <input type="hidden" name="file_type" value="custom">
@@ -394,7 +394,7 @@
                         <div class="alert alert-warning border-0 small mb-3">
                             <i class="fas fa-exclamation-triangle me-2"></i>To disable a specific rule, add its ID here (e.g., <code>SecRuleRemoveById 920420</code>).
                         </div>
-                        <form method="POST" action="{{ url_for('modsecurity') }}">
+                        <form method="POST" action="{{ url_for('system.modsecurity') }}">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="save_config">
                             <input type="hidden" name="file_type" value="disabled">
@@ -469,7 +469,7 @@
     }
 
     function filterLogsByDomain(domain) {
-        window.location.href = "{{ url_for('modsecurity') }}?domain=" + domain + "#logs";
+        window.location.href = "{{ url_for('system.modsecurity') }}?domain=" + domain + "#logs";
     }
 
     function refreshLogs() {

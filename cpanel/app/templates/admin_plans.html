@@ -8,7 +8,7 @@
                 <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-plus-circle"></i> Create New Plan</h6>
             </div>
             <div class="card-body">
-                <form action="{{ url_for('admin_plans') }}" method="POST">
+                <form action="{{ url_for('admin.admin_plans') }}" method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <input type="hidden" name="action" value="add"/>
                     <div class="mb-3">
@@ -55,7 +55,7 @@
                                 <td class="text-center">{{ details.max_databases }}</td>
                                 <td class="text-center">{{ details.max_nextjs }}</td>
                                 <td class="text-end pe-4">
-                                    <form action="{{ url_for('admin_plans') }}" method="POST" class="d-inline">
+                                    <form action="{{ url_for('admin.admin_plans') }}" method="POST" class="d-inline">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <input type="hidden" name="action" value="delete"/>
                                         <input type="hidden" name="name" value="{{ name }}"/>

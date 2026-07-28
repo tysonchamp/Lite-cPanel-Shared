@@ -10,7 +10,7 @@
                 <h5 class="mb-0">Install New WordPress Site</h5>
             </div>
             <div class="card-body">
-                <form id="wpInstallForm" method="POST" action="{{ url_for('wordpress') }}">
+                <form id="wpInstallForm" method="POST" action="{{ url_for('wordpress.wordpress') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="install_wp">
                     
@@ -96,7 +96,7 @@
                                             <i class="fas fa-sign-in-alt"></i> Admin Panel
                                         </a>
                                         {% endif %}
-                                        <form method="POST" action="{{ url_for('wordpress') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to permanently delete this WordPress installation and its associated database?');">
+                                        <form method="POST" action="{{ url_for('wordpress.wordpress') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to permanently delete this WordPress installation and its associated database?');">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="delete_wp">
                                             <input type="hidden" name="path" value="{{ wp.path }}">
@@ -149,7 +149,7 @@
 
         try {
             const formData = new FormData(form);
-            const response = await fetch("{{ url_for('wordpress') }}", {
+            const response = await fetch("{{ url_for('wordpress.wordpress') }}", {
                 method: 'POST',
                 body: formData
             });

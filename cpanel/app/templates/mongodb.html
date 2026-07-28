@@ -11,7 +11,7 @@
                 <h4 class="card-title text-warning"><i class="fas fa-exclamation-triangle me-2"></i> MongoDB is not installed</h4>
                 <p class="card-text">MongoDB is an optional database engine and is currently not installed on this system.</p>
                 
-                <form method="POST" action="{{ url_for('mongodb_route') }}" id="installMongoForm">
+                <form method="POST" action="{{ url_for('databases.mongodb_route') }}" id="installMongoForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="install">
                     <button type="submit" class="btn btn-primary" id="installMongoBtn">
@@ -37,7 +37,7 @@
                 <h5 class="mb-0">Create MongoDB Database & User</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('mongodb_route') }}" class="row g-3">
+                <form method="POST" action="{{ url_for('databases.mongodb_route') }}" class="row g-3">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="create">
                     
@@ -84,7 +84,7 @@
             <div class="card-body">
                 {% if me_status == 'not_installed' %}
                     <p class="text-muted mb-3">Mongo Express is a web-based MongoDB admin interface, similar to phpMyAdmin for MySQL. Install it to browse, edit, and manage your MongoDB data visually.</p>
-                    <form method="POST" action="{{ url_for('mongodb_route') }}" id="installExpressForm">
+                    <form method="POST" action="{{ url_for('databases.mongodb_route') }}" id="installExpressForm">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="install_express">
                         <button type="submit" class="btn btn-info text-white" id="installExpressBtn">
@@ -114,7 +114,7 @@
                             <a href="#" onclick="window.open(window.location.protocol + '//' + window.location.hostname + '/mongo-express', '_blank')" class="btn btn-success me-2">
                                 <i class="fas fa-external-link-alt me-1"></i> Open Mongo Express
                             </a>
-                            <form method="POST" action="{{ url_for('mongodb_route') }}" class="d-inline">
+                            <form method="POST" action="{{ url_for('databases.mongodb_route') }}" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="restart_express">
                                 <button type="submit" class="btn btn-outline-warning"><i class="fas fa-sync me-1"></i> Restart</button>
@@ -123,7 +123,7 @@
                     </div>
                 {% else %}
                     <p class="text-muted mb-3">Mongo Express is installed but not running.</p>
-                    <form method="POST" action="{{ url_for('mongodb_route') }}" class="d-inline">
+                    <form method="POST" action="{{ url_for('databases.mongodb_route') }}" class="d-inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="restart_express">
                         <button type="submit" class="btn btn-warning"><i class="fas fa-play me-1"></i> Start Mongo Express</button>
@@ -172,7 +172,7 @@
                                         <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#changePassModal{{ loop.index }}" {% if not db.users %}disabled{% endif %}>
                                             <i class="fas fa-key"></i> Password
                                         </button>
-                                        <form method="POST" action="{{ url_for('mongodb_route') }}" class="mb-0" onsubmit="return confirm('WARNING: This will permanently delete the database {{ db.name }} and all its data. Are you sure?');">
+                                        <form method="POST" action="{{ url_for('databases.mongodb_route') }}" class="mb-0" onsubmit="return confirm('WARNING: This will permanently delete the database {{ db.name }} and all its data. Are you sure?');">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="db_name" value="{{ db.name }}">
@@ -189,7 +189,7 @@
                                                     <h5 class="modal-title">Change Password for User</h5>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                                 </div>
-                                                <form method="POST" action="{{ url_for('mongodb_route') }}">
+                                                <form method="POST" action="{{ url_for('databases.mongodb_route') }}">
                                                     <div class="modal-body">
                                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                                         <input type="hidden" name="action" value="change_password">

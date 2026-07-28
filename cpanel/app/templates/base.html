@@ -92,33 +92,33 @@
         <div class="sidebar-brand text-center">
             <img src="{{ url_for('static', filename='logo.png') }}" alt="Lite cPanel" style="width: 130px; mix-blend-mode: screen;">
         </div>
-        <a href="{{ url_for('dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
-        <a href="{{ url_for('traffic_monitor') }}"><i class="fas fa-chart-line text-success"></i> Traffic Monitor</a>
-        <a href="{{ url_for('domains') }}"><i class="fas fa-globe"></i> Domains</a>
-        <a href="{{ url_for('nextjs') }}"><i class="fab fa-react text-info"></i> Next.js Apps</a>
-        <a href="{{ url_for('process_manager') }}"><i class="fas fa-tasks text-warning"></i> Process Manager</a>
-        <a href="{{ url_for('databases') }}"><i class="fas fa-database"></i> Databases</a>
+        <a href="{{ url_for('dashboard.dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+        <a href="{{ url_for('dashboard.traffic_monitor') }}"><i class="fas fa-chart-line text-success"></i> Traffic Monitor</a>
+        <a href="{{ url_for('domains.domains') }}"><i class="fas fa-globe"></i> Domains</a>
+        <a href="{{ url_for('nextjs.nextjs') }}"><i class="fab fa-react text-info"></i> Next.js Apps</a>
+        <a href="{{ url_for('nextjs.process_manager') }}"><i class="fas fa-tasks text-warning"></i> Process Manager</a>
+        <a href="{{ url_for('databases.databases') }}"><i class="fas fa-database"></i> Databases</a>
         
         {% if session.get('role') == 'admin' %}
-        <a href="{{ url_for('mongodb_route') }}"><i class="fas fa-leaf text-success"></i> MongoDB</a>
-        <a href="{{ url_for('ftp') }}"><i class="fas fa-folder-open"></i> FTP</a>
+        <a href="{{ url_for('databases.mongodb_route') }}"><i class="fas fa-leaf text-success"></i> MongoDB</a>
+        <a href="{{ url_for('filemanager.ftp') }}"><i class="fas fa-folder-open"></i> FTP</a>
         {% endif %}
         
-        <a href="{{ url_for('filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
-        <a href="{{ url_for('wordpress') }}"><i class="fab fa-wordpress"></i> WordPress</a>
+        <a href="{{ url_for('filemanager.filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
+        <a href="{{ url_for('wordpress.wordpress') }}"><i class="fab fa-wordpress"></i> WordPress</a>
         
         {% if session.get('role') == 'admin' %}
-        <a href="{{ url_for('backups') }}"><i class="fas fa-cloud-upload-alt"></i> Backups</a>
-        <a href="{{ url_for('firewall') }}"><i class="fas fa-shield-alt"></i> Firewall</a>
-        <a href="{{ url_for('modsecurity') }}"><i class="fas fa-user-shield"></i> ModSecurity</a>
-        <a href="{{ url_for('terminal') }}"><i class="fas fa-terminal"></i> Terminal</a>
-        <a href="{{ url_for('cron') }}"><i class="fas fa-clock"></i> Cron Jobs</a>
-        <a href="{{ url_for('settings') }}"><i class="fas fa-cogs"></i> Settings</a>
+        <a href="{{ url_for('system.backups') }}"><i class="fas fa-cloud-upload-alt"></i> Backups</a>
+        <a href="{{ url_for('system.firewall') }}"><i class="fas fa-shield-alt"></i> Firewall</a>
+        <a href="{{ url_for('system.modsecurity') }}"><i class="fas fa-user-shield"></i> ModSecurity</a>
+        <a href="{{ url_for('system.terminal') }}"><i class="fas fa-terminal"></i> Terminal</a>
+        <a href="{{ url_for('system.cron') }}"><i class="fas fa-clock"></i> Cron Jobs</a>
+        <a href="{{ url_for('system.settings') }}"><i class="fas fa-cogs"></i> Settings</a>
         <div style="border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;"></div>
-        <a href="{{ url_for('admin_plans') }}"><i class="fas fa-list-alt text-warning"></i> Hosting Plans</a>
-        <a href="{{ url_for('admin_users') }}"><i class="fas fa-users text-primary"></i> Manage Users</a>
+        <a href="{{ url_for('admin.admin_plans') }}"><i class="fas fa-list-alt text-warning"></i> Hosting Plans</a>
+        <a href="{{ url_for('admin.admin_users') }}"><i class="fas fa-users text-primary"></i> Manage Users</a>
         {% endif %}
-        <a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        <a href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
     </div>
 
     <div class="main-content">

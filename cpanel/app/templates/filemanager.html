@@ -9,7 +9,7 @@
         {% set parts = current_path.split('/') %}
         {% set ns = namespace(acc='') %}
         <li class="breadcrumb-item">
-          <a href="{{ url_for('filemanager_route') }}?path=/" class="text-decoration-none"><i class="fas fa-hdd"></i>
+          <a href="{{ url_for('filemanager.filemanager_route') }}?path=/" class="text-decoration-none"><i class="fas fa-hdd"></i>
             /</a>
         </li>
         {% for part in parts if part %}
@@ -18,7 +18,7 @@
         <li class="breadcrumb-item active">{{ part }}</li>
         {% else %}
         <li class="breadcrumb-item">
-          <a href="{{ url_for('filemanager_route') }}?path={{ ns.acc }}" class="text-decoration-none">{{ part }}</a>
+          <a href="{{ url_for('filemanager.filemanager_route') }}?path={{ ns.acc }}" class="text-decoration-none">{{ part }}</a>
         </li>
         {% endif %}
         {% endfor %}
@@ -30,7 +30,7 @@
       Upload</button>
     <button class="btn btn-sm btn-outline-warning" id="compressBtn" onclick="showCompressModal()" disabled><i
         class="fas fa-file-archive me-1"></i> Compress</button>
-    <a href="{{ url_for('filemanager_route') }}?path={{ parent_path }}"
+    <a href="{{ url_for('filemanager.filemanager_route') }}?path={{ parent_path }}"
       class="btn btn-sm btn-outline-secondary {% if current_path == '/' %}disabled{% endif %}">
       <i class="fas fa-arrow-up me-1"></i> Up
     </a>
@@ -66,7 +66,7 @@
             <td><input type="checkbox" class="row-check" value="{{ e.name }}"></td>
             <td>
               {% if e.is_dir %}
-              <a href="{{ url_for('filemanager_route') }}?path={{ e.path }}"
+              <a href="{{ url_for('filemanager.filemanager_route') }}?path={{ e.path }}"
                 class="text-decoration-none text-warning fw-semibold">
                 <i class="fas fa-folder me-2"></i>{{ e.name }}
               </a>
@@ -83,7 +83,7 @@
             <td class="text-end">
               <div class="d-flex gap-1 justify-content-end">
                 {% if not e.is_dir %}
-                <a href="{{ url_for('filemanager_download') }}?path={{ e.path }}"
+                <a href="{{ url_for('filemanager.filemanager_download') }}?path={{ e.path }}"
                   class="btn btn-sm btn-outline-secondary" title="Download"><i class="fas fa-download"></i></a>
                 <button class="btn btn-sm btn-outline-primary" onclick="openEditor('{{ e.path|e }}', '{{ e.name|e }}')"
                   title="Edit"><i class="fas fa-edit"></i></button>
@@ -116,7 +116,7 @@
 <div class="modal fade" id="newFolderModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('filemanager_route') }}">
+      <form method="POST" action="{{ url_for('filemanager.filemanager_route') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="mkdir">
         <input type="hidden" name="path" value="{{ current_path }}">
@@ -170,7 +170,7 @@
 <div class="modal fade" id="compressModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('filemanager_route') }}" id="compressForm">
+      <form method="POST" action="{{ url_for('filemanager.filemanager_route') }}" id="compressForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="compress">
         <input type="hidden" name="path" value="{{ current_path }}">
@@ -209,7 +209,7 @@
 <div class="modal fade" id="renameModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('filemanager_route') }}">
+      <form method="POST" action="{{ url_for('filemanager.filemanager_route') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="rename">
         <input type="hidden" name="path" id="renamePath">
@@ -228,7 +228,7 @@
 </div>
 
 <!-- Delete Form (hidden) -->
-<form method="POST" action="{{ url_for('filemanager_route') }}" id="deleteForm">
+<form method="POST" action="{{ url_for('filemanager.filemanager_route') }}" id="deleteForm">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="action" value="delete">
   <input type="hidden" name="path" id="deletePath">
@@ -236,7 +236,7 @@
 </form>
 
 <!-- Extract Form (hidden) -->
-<form method="POST" action="{{ url_for('filemanager_route') }}" id="extractForm">
+<form method="POST" action="{{ url_for('filemanager.filemanager_route') }}" id="extractForm">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="action" value="extract">
   <input type="hidden" name="path" id="extractPath">
@@ -247,7 +247,7 @@
 <div class="modal fade" id="editorModal" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('filemanager_route') }}">
+      <form method="POST" action="{{ url_for('filemanager.filemanager_route') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="redirect_path" value="{{ current_path }}">
@@ -324,7 +324,7 @@
     document.getElementById('editorSaveBtn').style.display = 'none';
     new bootstrap.Modal(document.getElementById('editorModal')).show();
 
-    fetch('{{ url_for("filemanager_read") }}?path=' + encodeURIComponent(path))
+    fetch('{{ url_for("filemanager.filemanager_read") }}?path=' + encodeURIComponent(path))
       .then(r => r.json())
       .then(data => {
         document.getElementById('editorLoading').style.display = 'none';

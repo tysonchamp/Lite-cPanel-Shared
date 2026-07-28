@@ -10,7 +10,7 @@
             <i class="fas fa-exclamation-triangle fa-3x mb-3 text-warning"></i>
             <h3>PM2 Not Detected</h3>
             <p class="text-muted">PM2 is required to manage Node.js and Next.js applications in the background.</p>
-            <form method="POST" action="{{ url_for('process_manager') }}">
+            <form method="POST" action="{{ url_for('nextjs.process_manager') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="install_pm2">
                 <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-download me-2"></i> Install PM2
@@ -49,7 +49,7 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('process_manager') }}" class="row g-3 align-items-end">
+                <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="row g-3 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="add_app">
                     <div class="col-md-3">
@@ -132,7 +132,7 @@
         // Create a temporary form to submit the action
         const tempForm = document.createElement('form');
         tempForm.method = 'POST';
-        tempForm.action = '{{ url_for("process_manager") }}';
+        tempForm.action = '{{ url_for("nextjs.process_manager") }}';
 
         const fields = {
             'csrf_token': '{{ csrf_token() }}',
@@ -161,7 +161,7 @@
     }
 
     // Override the main form submit to use fullPath
-    document.querySelector('form[action="{{ url_for("process_manager") }}"]').onsubmit = function () {
+    document.querySelector('form[action="{{ url_for("nextjs.process_manager") }}"]').onsubmit = function () {
         updateFullResult();
         const pathInput = this.querySelector('input[name="path"]');
         pathInput.value = document.getElementById('fullPath').value;
@@ -174,7 +174,7 @@
         <div class="card shadow-sm border-0">
             <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Managed Processes</h5>
-                <a href="{{ url_for('process_manager') }}" class="btn btn-sm btn-outline-secondary"><i
+                <a href="{{ url_for('nextjs.process_manager') }}" class="btn btn-sm btn-outline-secondary"><i
                         class="fas fa-sync-alt"></i> Refresh</a>
             </div>
             <div class="card-body p-0">
@@ -215,7 +215,7 @@
                                 <td class="align-middle text-end">
                                     <div class="d-flex justify-content-end gap-1">
                                         {% if p.pm2_env.status == 'online' %}
-                                        <form method="POST" action="{{ url_for('process_manager') }}" class="d-inline">
+                                        <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="d-inline">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="stop">
                                             <input type="hidden" name="name" value="{{ p.name }}">
@@ -223,7 +223,7 @@
                                                     class="fas fa-stop"></i></button>
                                         </form>
                                         {% else %}
-                                        <form method="POST" action="{{ url_for('process_manager') }}" class="d-inline">
+                                        <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="d-inline">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="start">
                                             <input type="hidden" name="name" value="{{ p.name }}">
@@ -232,7 +232,7 @@
                                         </form>
                                         {% endif %}
 
-                                        <form method="POST" action="{{ url_for('process_manager') }}" class="d-inline">
+                                        <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="d-inline">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="restart">
                                             <input type="hidden" name="name" value="{{ p.name }}">
@@ -243,7 +243,7 @@
                                         <button class="btn btn-sm btn-outline-info" onclick="viewLogs('{{ p.name }}')"
                                             title="Logs"><i class="fas fa-file-alt"></i></button>
 
-                                        <form method="POST" action="{{ url_for('process_manager') }}" class="d-inline"
+                                        <form method="POST" action="{{ url_for('nextjs.process_manager') }}" class="d-inline"
                                             onsubmit="return confirm('Delete this process from PM2?')">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="delete">

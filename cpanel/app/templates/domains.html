@@ -10,7 +10,7 @@
                 <h5 class="mb-0">Add New Domain</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('domains') }}" class="d-flex align-items-center gap-3">
+                <form method="POST" action="{{ url_for('domains.domains') }}" class="d-flex align-items-center gap-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <input type="hidden" name="action" value="add">
@@ -68,7 +68,7 @@
                                 <td class="align-middle">
                                     <div class="d-flex align-items-center gap-1">
                                         <!-- Toggle Form -->
-                                        <form method="POST" action="{{ url_for('domains') }}" class="mb-0">
+                                        <form method="POST" action="{{ url_for('domains.domains') }}" class="mb-0">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="action" value="toggle">
                                             <input type="hidden" name="domain" value="{{ vhost.domain }}">
@@ -82,18 +82,18 @@
                                         </form>
 
                                         <!-- Logs -->
-                                        <a href="{{ url_for('domain_logs', domain=vhost.domain) }}" class="btn btn-sm btn-outline-info" title="Logs"><i class="fas fa-file-alt"></i></a>
+                                        <a href="{{ url_for('domains.domain_logs', domain=vhost.domain) }}" class="btn btn-sm btn-outline-info" title="Logs"><i class="fas fa-file-alt"></i></a>
 
                                         <!-- Edit Configs -->
                                         {% for server, path in vhost.config_paths.items() %}
-                                        <a href="{{ url_for('edit_vhost', filepath=path) }}" class="btn btn-sm btn-outline-secondary" title="Edit {{ server }} Config">
+                                        <a href="{{ url_for('domains.edit_vhost', filepath=path) }}" class="btn btn-sm btn-outline-secondary" title="Edit {{ server }} Config">
                                             <i class="fas fa-edit"></i>
                                             <small style="font-size: 0.6rem; vertical-align: top;">{{ server[0] }}</small>
                                         </a>
                                         {% endfor %}
 
                                         <!-- SSL Actions -->
-                                        <form method="POST" action="{{ url_for('domains') }}" class="mb-0">
+                                        <form method="POST" action="{{ url_for('domains.domains') }}" class="mb-0">
                                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                             <input type="hidden" name="domain" value="{{ vhost.domain }}">
                                             <input type="hidden" name="servers" value="{{ vhost.servers|join(',') }}">

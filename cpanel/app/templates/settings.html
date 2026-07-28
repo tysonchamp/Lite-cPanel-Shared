@@ -13,7 +13,7 @@
                 <p class="text-muted small">Directly edit system configuration files. Services will automatically reload upon saving.</p>
                 <div class="list-group">
                     {% for config in configs %}
-                    <a href="{{ url_for('edit_config', filepath=config.path) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('system.edit_config', filepath=config.path) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
                         <div>
                             <h6 class="mb-0">{{ config.name }}</h6>
                             <small class="text-muted font-monospace" style="font-size: 0.75rem;">{{ config.path }}</small>

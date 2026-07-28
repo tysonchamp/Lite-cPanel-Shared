@@ -6,6 +6,7 @@ import subprocess
 import logging
 
 from domains_mgr import get_virtual_hosts, add_virtual_host, toggle_virtual_host, get_port80_webserver
+from hosting_mgr import can_add_resource, add_user_resource, remove_user_resource
 
 domains_bp = Blueprint('domains', __name__)
 
@@ -24,8 +25,16 @@ def domains():
                 flash(f"Validation failed: {e}", "danger")
                 return redirect(url_for('domains.domains'))
 
+            # Resource Limits Check
+            if session.get('role') != 'admin':
+                if not can_add_resource(session.get('username'), 'domains'):
+                    flash("You have reached your maximum domain limit for your plan.", "danger")
+                    return redirect(url_for('domains.domains'))
+
             success, message = add_virtual_host(domain, session.get('role'), session.get('username'))
             if success:
+                if session.get('role') != 'admin':
+                    add_user_resource(session.get('username'), 'domains', domain)
                 flash(message, 'success')
             else:
                 flash(message, 'danger')

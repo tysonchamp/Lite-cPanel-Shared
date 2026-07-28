@@ -15,7 +15,7 @@
             <i class="fas fa-circle me-1" style="font-size:.6rem;"></i>{{ csf_status }}
         </span>
         <!-- Service controls -->
-        <form method="POST" action="{{ url_for('firewall') }}" class="d-inline">
+        <form method="POST" action="{{ url_for('system.firewall') }}" class="d-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button name="action" value="start" class="btn btn-sm btn-outline-success">Start</button>
             <button name="action" value="stop" class="btn btn-sm btn-outline-danger">Stop</button>
@@ -31,14 +31,14 @@
             <div class="card-header bg-white border-bottom fw-semibold"><i
                     class="fas fa-bolt me-2 text-warning"></i>Quick IP Management</div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('firewall') }}" class="input-group mb-2">
+                <form method="POST" action="{{ url_for('system.firewall') }}" class="input-group mb-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="text" class="form-control" name="ip"
                         placeholder="IP Address or CIDR (e.g. 1.2.3.4 or 1.2.3.0/24)" required>
                     <button name="action" value="allow_ip" class="btn btn-success">Allow</button>
                     <button name="action" value="deny_ip" class="btn btn-danger">Deny</button>
                 </form>
-                <form method="POST" action="{{ url_for('firewall') }}" class="input-group">
+                <form method="POST" action="{{ url_for('system.firewall') }}" class="input-group">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="text" class="form-control" name="ip" placeholder="IP Address to Remove" required>
                     <button name="action" value="unallow_ip" class="btn btn-outline-success">Un-Allow</button>
@@ -94,7 +94,7 @@
                 <tr class="conf-row" data-key="{{ s.key|lower }}">
                     <td class="font-monospace fw-semibold text-nowrap">{{ s.key }}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('firewall') }}" class="d-flex gap-1 mb-0">
+                        <form method="POST" action="{{ url_for('system.firewall') }}" class="d-flex gap-1 mb-0">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="save_csf_conf_key">
                             <input type="hidden" name="conf_key" value="{{ s.key }}">
@@ -154,7 +154,7 @@
                         <td>{{ e.ttl }}</td>
                         <td class="text-muted small">{{ e.comment }}</td>
                         <td class="text-end pe-3">
-                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0">
+                            <form method="POST" action="{{ url_for('system.firewall') }}" class="mb-0">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="remove_rule">
                                 <input type="hidden" name="file_type" value="{{ e.type.lower() }}">
@@ -202,7 +202,7 @@
                         <td class="ps-3 fw-bold font-monospace">{{ entry.rule }}</td>
                         <td class="text-muted small">{{ entry.comment }}</td>
                         <td class="text-end pe-3">
-                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0"
+                            <form method="POST" action="{{ url_for('system.firewall') }}" class="mb-0"
                                 onsubmit="return confirm('Delete this rule from whitelist?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="remove_rule">
@@ -251,7 +251,7 @@
                         <td class="ps-3 fw-bold font-monospace">{{ entry.rule }}</td>
                         <td class="text-muted small">{{ entry.comment }}</td>
                         <td class="text-end pe-3">
-                            <form method="POST" action="{{ url_for('firewall') }}" class="mb-0"
+                            <form method="POST" action="{{ url_for('system.firewall') }}" class="mb-0"
                                 onsubmit="return confirm('Delete this rule from blacklist?');">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="remove_rule">
@@ -296,7 +296,7 @@
             {% for file_type, content in [('allow', csf_allow_file), ('deny', csf_deny_file), ('ignore',
             csf_ignore_file), ('pignore', csf_pignore_file), ('regex', csf_regex_file)] %}
             <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="tab-{{ file_type }}">
-                <form method="POST" action="{{ url_for('firewall') }}">
+                <form method="POST" action="{{ url_for('system.firewall') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="save_csf_file">
                     <input type="hidden" name="file_type" value="{{ file_type }}">
@@ -309,7 +309,7 @@
             {% endfor %}
             <!-- Raw csf.conf -->
             <div class="tab-pane fade" id="tab-conf">
-                <form method="POST" action="{{ url_for('firewall') }}">
+                <form method="POST" action="{{ url_for('system.firewall') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="save_csf_file">
                     <input type="hidden" name="file_type" value="config">
@@ -333,7 +333,7 @@
 <div class="modal fade" id="tempActionModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('firewall') }}">
+            <form method="POST" action="{{ url_for('system.firewall') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="temp_ip">
                 <div class="modal-header">
@@ -385,7 +385,7 @@
 <div class="modal fade" id="allowActionModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('firewall') }}">
+            <form method="POST" action="{{ url_for('system.firewall') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="allow_ip">
                 <div class="modal-header">
@@ -414,7 +414,7 @@
 <div class="modal fade" id="denyActionModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="{{ url_for('firewall') }}">
+            <form method="POST" action="{{ url_for('system.firewall') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="deny_ip">
                 <div class="modal-header">

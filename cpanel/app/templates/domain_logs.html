@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row mb-3">
     <div class="col-12">
-        <a href="{{ url_for('domains') }}" class="btn btn-outline-secondary btn-sm">
+        <a href="{{ url_for('domains.domains') }}" class="btn btn-outline-secondary btn-sm">
             <i class="fas fa-arrow-left me-1"></i> Back to Domains
         </a>
     </div>
@@ -76,7 +76,7 @@
 </div>
 
 <script>
-const FETCH_URL = "{{ url_for('domain_logs_fetch', domain=domain) }}";
+const FETCH_URL = "{{ url_for('domains.domain_logs_fetch', domain=domain) }}";
 let autoRefreshInterval = null;
 let autoRefreshActive = false;
 

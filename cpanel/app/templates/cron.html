@@ -11,7 +11,7 @@
                     <h5 class="card-title text-primary"><i class="fas fa-shield-alt me-2"></i> Let's Encrypt Auto-Renewal</h5>
                     <p class="card-text text-muted mb-0">Automatically renew your SSL certificates before they expire. This sets up a twice-daily check.</p>
                 </div>
-                <form method="POST" action="{{ url_for('cron') }}" class="mb-0">
+                <form method="POST" action="{{ url_for('system.cron') }}" class="mb-0">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="setup_ssl">
                     <button type="submit" class="btn btn-primary"><i class="fas fa-magic me-2"></i> Enable Auto-Renew</button>
@@ -28,7 +28,7 @@
                 <h5 class="mb-0">Add New Cron Job</h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('cron') }}">
+                <form method="POST" action="{{ url_for('system.cron') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="add">
                     <div class="row g-3">
@@ -166,7 +166,7 @@
                                 </td>
                                 {% endif %}
                                 <td class="align-middle">
-                                    <form method="POST" action="{{ url_for('cron') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to delete this cron job?');">
+                                    <form method="POST" action="{{ url_for('system.cron') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to delete this cron job?');">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="index" value="{{ job.index }}">

@@ -11,7 +11,7 @@
                 <a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i> {{ back_label }}</a>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ save_url | default(url_for('settings')) }}">
+                <form method="POST" action="{{ save_url | default(url_for('system.settings')) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <input type="hidden" name="action" value="save_config">
