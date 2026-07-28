@@ -15,7 +15,7 @@ def get_installed_wordpress(vhosts):
     for vhost in vhosts:
         domain = vhost.get('domain')
         if not domain: continue
-        doc_root = f'/var/www/{domain}'
+        doc_root = vhost.get('doc_root', f'/var/www/{domain}')
         
         def check_wp(check_path, display_domain):
             if os.path.exists(os.path.join(check_path, 'wp-settings.php')):
@@ -107,7 +107,18 @@ def install_wordpress_generator(domain, target_path=""):
     try:
         yield emit(5, "Validating installation paths...")
         
-        base_dir = f'/var/www/{domain}'
+        # Get actual doc root for this domain
+        from domains_mgr import get_virtual_hosts
+        from flask import session
+        vhosts = get_virtual_hosts(session.get('role', 'admin'), session.get('username', None))
+        domain_info = next((v for v in vhosts if v['domain'] == domain), None)
+        
+        if not domain_info:
+            yield emit(100, f"Domain {domain} not found or access denied.", error=True)
+            return
+            
+        base_dir = domain_info.get('doc_root', f'/var/www/{domain}')
+        
         if not target_path:
             doc_root = base_dir
         else:
@@ -165,20 +176,35 @@ def install_wordpress_generator(domain, target_path=""):
                     os.remove(default_index)
 
         yield emit(65, "Downloading WordPress core via WP-CLI...")
-        res = subprocess.run(['su', '-s', '/bin/bash', '-c', f'wp core download --path="{doc_root}" --force', 'www-data'], capture_output=True, text=True)
+        res = subprocess.run(['wp', 'core', 'download', f'--path={doc_root}', '--force', '--allow-root'], capture_output=True, text=True)
         if res.returncode != 0:
             yield emit(100, f"WordPress download failed: {res.stderr}", error=True)
             return
 
         yield emit(85, "Configuring wp-config.php integrations...")
-        res = subprocess.run(['su', '-s', '/bin/bash', '-c', f'wp config create --dbname="{db_name}" --dbuser="{db_user}" --dbpass="{db_pass}" --path="{doc_root}"', 'www-data'], capture_output=True, text=True)
+        res = subprocess.run(['wp', 'config', 'create', f'--dbname={db_name}', f'--dbuser={db_user}', f'--dbpass={db_pass}', f'--path={doc_root}', '--allow-root'], capture_output=True, text=True)
         if res.returncode != 0:
             yield emit(100, f"WordPress config creation failed: {res.stderr}", error=True)
             return
 
         yield emit(95, "Securing filesystem permissions...")
-        subprocess.run(['chown', '-R', 'www-data:www-data', doc_root])
-        subprocess.run(['chmod', '-R', '755', doc_root])
+        
+        # Determine appropriate ownership based on path
+        owner = "www-data"
+        if doc_root.startswith('/home/'):
+            parts = doc_root.split('/')
+            if len(parts) >= 3:
+                owner = parts[2]
+                
+        subprocess.run(['chown', '-R', f'{owner}:{owner}', doc_root])
+        
+        if owner == "www-data":
+            subprocess.run(['chmod', '-R', '755', doc_root])
+        else:
+            # Set group permissions so web server can read/write, setgid bit for inheritance
+            subprocess.run(['find', doc_root, '-type', 'd', '-exec', 'chmod', '770', '{}', '+'])
+            subprocess.run(['find', doc_root, '-type', 'f', '-exec', 'chmod', '660', '{}', '+'])
+            subprocess.run(['find', doc_root, '-type', 'd', '-exec', 'chmod', 'g+s', '{}', '+'])
 
         yield emit(100, f"WordPress successfully installed in {doc_root}!", success=True)
 

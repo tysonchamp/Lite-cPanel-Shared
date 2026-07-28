@@ -40,11 +40,21 @@ def get_virtual_hosts(role='admin', username=None):
                         'servers': [], 
                         'enabled': enabled, 
                         'config_paths': {}, 
-                        'has_ssl': False
+                        'has_ssl': False,
+                        'doc_root': f'/var/www/{domain}' # fallback
                     }
                 grouped_vhosts[domain]['servers'].append('Apache')
                 grouped_vhosts[domain]['config_paths']['Apache'] = os.path.join(apache_dir, f)
                 grouped_vhosts[domain]['enabled'] = grouped_vhosts[domain]['enabled'] or enabled
+                
+                # Extract DocumentRoot
+                try:
+                    with open(os.path.join(apache_dir, f), 'r') as conf:
+                        for line in conf:
+                            if 'DocumentRoot' in line:
+                                grouped_vhosts[domain]['doc_root'] = line.split('DocumentRoot')[1].strip().strip('"\'')
+                                break
+                except: pass
 
     # Check SSL
     for domain in grouped_vhosts:

@@ -34,6 +34,6 @@ def wordpress():
             flash(msg, 'success' if success else 'danger')
             return redirect(url_for('wordpress.wordpress'))
 
-    domains = get_virtual_hosts('admin', None)
+    domains = get_virtual_hosts(session.get('role'), session.get('username'))
     wp_installs = get_installed_wordpress(domains)
     return render_template('wordpress.html', domains=domains, wp_installs=wp_installs)

@@ -20,7 +20,7 @@
                             <select class="form-select" id="domainSelect" name="domain" required>
                                 <option value="" disabled selected>Choose a domain...</option>
                                 {% for vhost in domains %}
-                                    <option value="{{ vhost.domain }}">{{ vhost.domain }}</option>
+                                    <option value="{{ vhost.domain }}" data-docroot="{{ vhost.doc_root }}">{{ vhost.domain }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -123,7 +123,9 @@
 <script>
     document.getElementById('domainSelect').addEventListener('change', function() {
         const span = document.querySelector('.input-group-text');
-        span.textContent = `/var/www/${this.value}/`;
+        const selectedOption = this.options[this.selectedIndex];
+        const docRoot = selectedOption.getAttribute('data-docroot');
+        span.textContent = (docRoot || `/var/www/${this.value}`) + '/';
     });
 
     const form = document.getElementById('wpInstallForm');
