@@ -38,6 +38,13 @@ def _init_db(conn):
             FOREIGN KEY(username) REFERENCES users(username)
         )
     ''')
+    
+    # Run migrations for existing databases
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN main_domain TEXT")
+    except sqlite3.OperationalError:
+        pass # Column already exists
+        
     conn.commit()
 
 # Plans Management
@@ -99,6 +106,7 @@ def get_users():
         username = row['username']
         users[username] = {
             "plan": row['plan_name'],
+            "main_domain": row.get('main_domain', ''),
             "domains": [],
             "databases": [],
             "nextjs_apps": []
@@ -137,7 +145,7 @@ def get_user_plan_limits(username):
         }
     return None
 
-def add_user(username, password, plan_name):
+def add_user(username, password, plan_name, main_domain):
     conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM plans WHERE name = ?", (plan_name,))
@@ -149,6 +157,12 @@ def add_user(username, password, plan_name):
     if cursor.fetchone():
         conn.close()
         return False, "User already exists in cPanel."
+        
+    # Ensure domain is not already in use
+    cursor.execute("SELECT id FROM user_resources WHERE resource_type = 'domains' AND resource_name = ?", (main_domain,))
+    if cursor.fetchone():
+        conn.close()
+        return False, "Main domain is already in use by another user."
     
     # Create Linux User
     try:
@@ -159,11 +173,25 @@ def add_user(username, password, plan_name):
         
         # Set password
         subprocess.run(['chpasswd'], input=f"{username}:{password}", text=True, check=True)
+        
+        # Create public_html
+        home_dir = f"/home/{username}"
+        public_html = f"{home_dir}/public_html"
+        os.makedirs(public_html, exist_ok=True)
+        # Fix permissions so webserver can access it (usually setting parent to 755 or 711)
+        subprocess.run(['chmod', '711', home_dir], check=False)
+        subprocess.run(['chown', '-R', f"{username}:{username}", public_html], check=True)
+        subprocess.run(['chmod', '755', public_html], check=True)
+        
     except Exception as e:
         conn.close()
         return False, f"Failed to create system user: {str(e)}"
 
-    cursor.execute("INSERT INTO users (username, plan_name) VALUES (?, ?)", (username, plan_name))
+    cursor.execute("INSERT INTO users (username, plan_name, main_domain) VALUES (?, ?, ?)", (username, plan_name, main_domain))
+    
+    # Also add the main domain to user_resources
+    cursor.execute("INSERT INTO user_resources (username, resource_type, resource_name) VALUES (?, ?, ?)", (username, 'domains', main_domain))
+    
     conn.commit()
     conn.close()
     return True, "User created successfully."

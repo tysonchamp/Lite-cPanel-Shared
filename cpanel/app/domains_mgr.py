@@ -75,7 +75,7 @@ def get_virtual_hosts(role='admin', username=None):
 
     return list(grouped_vhosts.values())
 
-def add_virtual_host(domain, role='admin', username=None):
+def add_virtual_host(domain, role='admin', username=None, is_main=False):
     """
     Calls the existing vhost-manager.sh script to create a new virtual host.
     """
@@ -85,14 +85,17 @@ def add_virtual_host(domain, role='admin', username=None):
     if os.path.exists(script_path):
         try:
             # Check limits if user
-            if role == 'user' and username:
+            if role == 'user' and username and not is_main:
                 if not can_add_resource(username, 'domains'):
                     return False, "Domain limit reached for your plan."
             
             # Determine doc_root
             doc_root = f"/var/www/{domain}"
             if role == 'user' and username:
-                doc_root = f"/home/{username}/public_html/{domain}"
+                if is_main:
+                    doc_root = f"/home/{username}/public_html"
+                else:
+                    doc_root = f"/home/{username}/public_html/{domain}"
                 
             # Provide an explicit environment with guaranteed standard PATH to prevent 'command not found' errors
             env = os.environ.copy()
@@ -102,9 +105,10 @@ def add_virtual_host(domain, role='admin', username=None):
             result = subprocess.run(['/bin/bash', script_path, domain, doc_root],
                                   capture_output=True, text=True, check=True, env=env)
             
-            # Track ownership if user
+            # Track ownership if user (main domain is tracked separately during user creation, but adding it here if is_main=False is fine, or we just rely on calling code)
             if role == 'user' and username:
-                add_user_resource(username, 'domains', domain)
+                if not is_main:
+                    add_user_resource(username, 'domains', domain)
                 subprocess.run(['chown', '-R', f"{username}:{username}", doc_root], capture_output=True)
                 
             return True, "Virtual host created successfully."

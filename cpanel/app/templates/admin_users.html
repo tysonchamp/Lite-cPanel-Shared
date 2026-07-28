@@ -21,6 +21,11 @@
                         <input type="password" name="password" class="form-control" required>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold">Main Domain</label>
+                        <input type="text" name="main_domain" class="form-control" required placeholder="e.g. mydomain.com" pattern="[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}">
+                        <small class="form-text text-muted">The primary domain for this hosting account.</small>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label text-muted small fw-bold">Hosting Plan</label>
                         <select name="plan" class="form-select" required>
                             <option value="">Select Plan...</option>
@@ -44,6 +49,7 @@
                             <tr>
                                 <th class="border-0 text-muted small ps-4">Username</th>
                                 <th class="border-0 text-muted small">Plan</th>
+                                <th class="border-0 text-muted small">Main Domain</th>
                                 <th class="border-0 text-muted small text-center">Domains</th>
                                 <th class="border-0 text-muted small text-center">Databases</th>
                                 <th class="border-0 text-muted small text-center">Next.js Apps</th>
@@ -55,6 +61,7 @@
                             <tr>
                                 <td class="ps-4 fw-bold text-dark">{{ username }}</td>
                                 <td><span class="badge bg-secondary">{{ details.plan }}</span></td>
+                                <td>{{ details.main_domain }}</td>
                                 <td class="text-center">{{ details.domains|length }}</td>
                                 <td class="text-center">{{ details.databases|length }}</td>
                                 <td class="text-center">{{ details.nextjs_apps|length }}</td>
@@ -69,7 +76,7 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="6" class="text-center py-4 text-muted">No users found.</td>
+                                <td colspan="7" class="text-center py-4 text-muted">No users found.</td>
                             </tr>
                             {% endfor %}
                         </tbody>

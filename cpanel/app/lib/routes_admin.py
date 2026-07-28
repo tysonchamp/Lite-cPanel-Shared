@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from auth import login_required, admin_required
 
 from hosting_mgr import get_plans, add_plan, delete_plan, get_users, add_user, delete_user
+from domains_mgr import add_virtual_host
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -38,11 +39,22 @@ def admin_users():
             username = request.form.get('username')
             password = request.form.get('password')
             plan = request.form.get('plan')
-            if not username or not password or not plan:
+            main_domain = request.form.get('main_domain')
+            
+            if not username or not password or not plan or not main_domain:
                 flash('All fields are required.', 'danger')
             else:
-                ok, msg = add_user(username, password, plan)
-                flash(msg, 'success' if ok else 'danger')
+                ok, msg = add_user(username, password, plan, main_domain)
+                if ok:
+                    # Setup the main domain for the user in the web server
+                    vh_ok, vh_msg = add_virtual_host(main_domain, role='user', username=username, is_main=True)
+                    if not vh_ok:
+                        msg = f"User created, but domain setup failed: {vh_msg}"
+                        flash(msg, 'warning')
+                    else:
+                        flash(msg, 'success')
+                else:
+                    flash(msg, 'danger')
         elif action == 'delete':
             username = request.form.get('username')
             ok, msg = delete_user(username)
