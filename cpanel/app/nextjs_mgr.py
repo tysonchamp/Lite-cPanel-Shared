@@ -128,6 +128,8 @@ def create_apache_proxy(domain, port):
     with open(site_file, 'w') as f:
         f.write(content)
     
+    # Ensure proxy modules are enabled
+    subprocess.run(['a2enmod', 'proxy', 'proxy_http'], check=False)
     subprocess.run(['a2ensite', f"{domain}.conf"], check=True)
     
 def create_nginx_proxy(domain, port, is_hybrid=False):

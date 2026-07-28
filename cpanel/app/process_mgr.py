@@ -4,7 +4,7 @@ import os
 import shutil
 import subprocess
 
-PM2_BIN = "/root/.nvm/versions/node/v24.15.0/bin/pm2"
+PM2_BIN = "/usr/bin/pm2"
 PM2_HOME = "/root/.pm2"
 
 def is_pm2_installed():

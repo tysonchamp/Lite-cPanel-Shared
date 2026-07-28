@@ -96,25 +96,15 @@ fi
 
 # Install Node.js
 install_nodejs() {
-    echo -e "${GREEN}Installing Node.js via NVM...${NC}"
-    export NVM_DIR="$HOME/.nvm"
+    echo -e "${GREEN}Installing Node.js via NodeSource...${NC}"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
     
-    # Ensure NVM is installed
-    if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
-    fi
-    
-    \\. "$NVM_DIR/nvm.sh"
-    
-    # Ensure Node 24 is installed
-    if [[ ! "$(node -v 2>/dev/null)" == v24* ]]; then
-        nvm install 24
-    fi
-    nvm use 24
+    echo -e "${GREEN}Installing PM2 globally...${NC}"
+    npm install -g pm2
 }
 # Install Node.js
 install_nodejs
-
 
 # Get absolute path of the directory
 # This handles the case where the script is executed with `sh` or `dash` instead of `bash`

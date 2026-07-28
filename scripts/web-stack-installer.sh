@@ -84,13 +84,7 @@ GRANT ALL PRIVILEGES ON *.* TO 'pma_sso'@'localhost' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOF
 
-    if [ -z "$INSTALL_MONGODB" ]; then
-        echo -n "Do you want to install MongoDB? (y/n): "
-        read user_mongo
-        if [ "$user_mongo" = "y" ]; then
-            install_mongodb
-        fi
-    elif [ "$INSTALL_MONGODB" = "y" ]; then
+    if [ "$INSTALL_MONGODB" = "y" ]; then
         install_mongodb
     fi
     
@@ -529,62 +523,37 @@ main() {
         exit 1
     fi
     
+    # Auto-install Hybrid stack if no stack is installed yet
+    if ! is_stack_installed; then
+        echo -e "${GREEN}Initial installation: Auto-installing Hybrid Stack...${NC}"
+        install_hybrid_stack
+    fi
+
     if [ -n "$1" ]; then
-        if ! is_stack_installed; then
-            echo -e "${GREEN}First time installation - choose stack type:${NC}"
-            echo "1. Apache LAMP"
-            echo "2. NGINX"
-            echo "3. NGINX + Apache + PHP-FPM"
-            echo -n "Choose: "
-            read stack_choice
-            case $stack_choice in
-                1) install_apache_stack ;;
-                2) install_nginx_stack ;;
-                3) install_hybrid_stack ;;
-                *) echo -e "${RED}Invalid choice${NC}"; exit 1 ;;
-            esac
-        fi
         create_virtual_host "$1" "$2"
         exit 0
     fi
     
+    # If the user runs the script without arguments and stack is already installed,
+    # just show the management menu.
     while true; do
-        if [ -n "$AUTO_STACK_CHOICE" ] && ! is_stack_installed; then
-            choice="$AUTO_STACK_CHOICE"
-        else
-            show_menu
-            read choice
-        fi
+        show_menu
+        read choice
         
-        if ! is_stack_installed; then
-            case $choice in
-                1) install_apache_stack ;;
-                2) install_nginx_stack ;;
-                3) install_hybrid_stack ;;
-                4) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
-                *) echo -e "${RED}Invalid option${NC}" ;;
-            esac
-            
-            # If auto-installing, exit immediately after the stack is installed
-            if [ -n "$AUTO_STACK_CHOICE" ]; then
-                exit 0
-            fi
-        else
-            case $choice in
-                1)
-                    echo -n "Enter domain name: "
-                    read domain
-                    [ -n "$domain" ] && create_virtual_host "$domain"
-                    ;;
-                2) list_virtual_hosts ;;
-                3) install_webmin ;;
-                4) setup_ssl ;;
-                5) show_passwords ;;
-                6) manage_cron_jobs ;;
-                7) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
-                *) echo -e "${RED}Invalid option${NC}" ;;
-            esac
-        fi
+        case $choice in
+            1)
+                echo -n "Enter domain name: "
+                read domain
+                [ -n "$domain" ] && create_virtual_host "$domain"
+                ;;
+            2) list_virtual_hosts ;;
+            3) install_webmin ;;
+            4) setup_ssl ;;
+            5) show_passwords ;;
+            6) manage_cron_jobs ;;
+            7) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            *) echo -e "${RED}Invalid option${NC}" ;;
+        esac
     done
 }
 
