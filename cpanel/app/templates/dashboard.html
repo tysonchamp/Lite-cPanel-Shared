@@ -259,17 +259,21 @@
             const res = await fetch("{{ url_for('dashboard.api_services') }}");
             const data = await res.json();
             let html = '<ul class="list-group list-group-flush">';
+            const isAdmin = "{{ session.get('role') }}" === "admin";
             for (let s of data.services) {
                 let badge = s.status === 'active' ? 'bg-success' : (s.status === 'inactive' ? 'bg-warning text-dark' : 'bg-danger');
                 html += `<li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
                     <div>
                         <div class="small fw-bold">${s.name}</div>
                         <span class="badge ${badge}" style="font-size: 8px;">${s.status.toUpperCase()}</span>
-                    </div>
+                    </div>`;
+                if (isAdmin) {
+                    html += `
                     <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="restartService('${s.id}', '${s.name}', this)" title="Restart Service">
                         <i class="fas fa-redo fa-xs"></i>
-                    </button>
-                </li>`;
+                    </button>`;
+                }
+                html += `</li>`;
             }
             html += '</ul>';
             document.getElementById('serviceList').innerHTML = html;

@@ -173,6 +173,16 @@ def dashboard():
 
     public_ip = DASHBOARD_CACHE.get('public_ip', 'Unknown')
     traffic_stats = DASHBOARD_CACHE.get('traffic', [])
+    
+    # Filter traffic stats if not admin
+    if session.get('role') != 'admin':
+        from nextjs_mgr import get_nextjs_apps
+        from domains_mgr import get_virtual_hosts
+        user_domains = set()
+        for app in get_nextjs_apps(session.get('role'), session.get('username')): user_domains.add(app['domain'])
+        for host in get_virtual_hosts(session.get('role'), session.get('username')): user_domains.add(host['domain'])
+        traffic_stats = [t for t in traffic_stats if t['domain'] in user_domains]
+
     ssh_logins = DASHBOARD_CACHE.get('security_events', [])
 
     ports = []
@@ -232,9 +242,12 @@ def traffic_monitor():
         except: pass
         return None
 
+    role = session.get('role')
+    username = session.get('username')
+    
     all_domains = set()
-    for app in get_nextjs_apps('admin', None): all_domains.add(app['domain'])
-    for host in get_virtual_hosts('admin', None): all_domains.add(host['domain'])
+    for app in get_nextjs_apps(role, username): all_domains.add(app['domain'])
+    for host in get_virtual_hosts(role, username): all_domains.add(host['domain'])
 
     for domain in all_domains:
         domain_lower = domain.lower()
@@ -435,6 +448,9 @@ def api_services():
 @dashboard_bp.route('/api/services/restart', methods=['POST'])
 @login_required
 def api_service_restart():
+    if session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Permission denied. Admins only.'}), 403
+
     service_id = request.json.get('service_id') if request.is_json else request.form.get('service_id')
     if not service_id:
         return jsonify({'success': False, 'message': 'Missing service identification.'})
