@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify, send_file
-from auth import login_required
+from auth import login_required, admin_required
 from security_mgr import validate_input, is_safe_path, python_grep, check_dns_resolution
 import os
 import subprocess
@@ -177,6 +177,7 @@ def domain_logs_fetch(domain):
 
 @domains_bp.route('/domains/edit-vhost')
 @login_required
+@admin_required
 def edit_vhost():
     """Dedicated editor for Apache/Nginx vhost config files, accessed from the Domains page."""
     filepath = request.args.get('filepath', '')
@@ -209,6 +210,7 @@ def edit_vhost():
 
 @domains_bp.route('/domains/save-vhost', methods=['POST'])
 @login_required
+@admin_required
 def save_vhost():
     """Save handler for vhost files edited from the Domains page."""
     filepath = request.form.get('filepath', '')

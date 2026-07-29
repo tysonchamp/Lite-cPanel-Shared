@@ -210,12 +210,14 @@
                                             <a href="{{ url_for('domains.domain_logs', domain=app.domain) }}" class="btn btn-sm btn-outline-info" title="Logs"><i class="fas fa-file-alt"></i></a>
 
                                             <!-- Edit Configs -->
+                                            {% if session.get('role') == 'admin' %}
                                             {% for server, path in app.config_paths.items() %}
                                             <a href="{{ url_for('domains.edit_vhost', filepath=path, source='docker') }}" class="btn btn-sm btn-outline-secondary" title="Edit {{ server }} Config">
                                                 <i class="fas fa-edit"></i>
                                                 <small style="font-size: 0.6rem; vertical-align: top;">{{ server[0] }}</small>
                                             </a>
                                             {% endfor %}
+                                            {% endif %}
 
                                             <!-- SSL Actions -->
                                             <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0">
