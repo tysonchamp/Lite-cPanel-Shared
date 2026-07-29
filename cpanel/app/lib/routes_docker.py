@@ -54,9 +54,9 @@ def docker_route():
             username = session.get('username')
             
             if role == 'user':
-                can_add, err = can_add_resource(username, 'docker_apps')
+                can_add = can_add_resource(username, 'docker_apps')
                 if not can_add:
-                    flash(err, 'danger')
+                    flash("You have reached your limit for Docker proxies.", 'danger')
                     return redirect(url_for('docker.docker_route'))
 
             port = allocate_docker_port(domain)
