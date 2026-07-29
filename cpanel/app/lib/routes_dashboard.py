@@ -51,8 +51,7 @@ def get_dashboard_traffic():
             f"/var/log/nginx/{domain_lower}_access.log",
             f"/var/log/apache2/{domain_lower}_access.log",
             f"/var/log/nginx/{domain_lower}.access.log",
-            f"/var/log/apache2/{domain_lower}.access.log",
-            f"/var/log/nginx/access.log",
+            f"/var/log/apache2/{domain_lower}.access.log"
         ]
         
         traffic_item = None
@@ -255,8 +254,7 @@ def traffic_monitor():
             f"/var/log/nginx/{domain_lower}_access.log",
             f"/var/log/apache2/{domain_lower}_access.log",
             f"/var/log/nginx/{domain_lower}.access.log",
-            f"/var/log/apache2/{domain_lower}.access.log",
-            f"/var/log/nginx/access.log"
+            f"/var/log/apache2/{domain_lower}.access.log"
         ]
         for log_file in log_candidates:
             if os.path.exists(log_file):

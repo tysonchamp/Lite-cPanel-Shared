@@ -80,7 +80,13 @@ def get_virtual_hosts(role='admin', username=None):
     # Filter by user ownership if not admin
     if role == 'user' and username:
         user_db = get_users()
-        user_domains = user_db.get(username, {}).get('domains', [])
+        user_info = user_db.get(username, {})
+        
+        # Collect both addon domains and the main domain
+        user_domains = set(user_info.get('domains', []))
+        if user_info.get('main_domain'):
+            user_domains.add(user_info['main_domain'])
+            
         return [v for k, v in grouped_vhosts.items() if k in user_domains]
 
     return list(grouped_vhosts.values())
