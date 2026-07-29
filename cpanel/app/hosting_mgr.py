@@ -63,6 +63,13 @@ def _init_db(conn):
             port INTEGER UNIQUE
         )
     ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS docker_ports (
+            domain TEXT PRIMARY KEY,
+            port INTEGER UNIQUE
+        )
+    ''')
         
     conn.commit()
 
@@ -281,7 +288,7 @@ def can_add_resource(username, resource_type):
     conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT p.max_domains, p.max_databases, p.max_mongodb, p.max_nextjs 
+        SELECT p.max_domains, p.max_databases, p.max_mongodb, p.max_nextjs, p.max_docker 
         FROM plans p 
         JOIN users u ON p.name = u.plan_name 
         WHERE u.username = ?
@@ -306,6 +313,8 @@ def can_add_resource(username, resource_type):
         return current_count < plan['max_mongodb']
     elif resource_type == 'nextjs_apps':
         return current_count < plan['max_nextjs']
+    elif resource_type == 'docker_apps':
+        return current_count < plan['max_docker']
     return False
 
 def get_nextjs_port(domain):
@@ -340,6 +349,48 @@ def allocate_nextjs_port(domain):
     conn.close()
     
     return new_port
+
+def get_docker_port(domain):
+    """Retrieve the allocated port for a docker domain, if it exists."""
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT port FROM docker_ports WHERE domain = ?", (domain,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row['port']
+    return None
+
+def allocate_docker_port(domain):
+    """Allocates and saves a new unique port for a Docker proxy, starting from 9000."""
+    existing_port = get_docker_port(domain)
+    if existing_port:
+        return existing_port
+        
+    conn = _get_conn()
+    cursor = conn.cursor()
+    
+    # Get max port currently assigned
+    cursor.execute("SELECT MAX(port) as max_port FROM docker_ports")
+    row = cursor.fetchone()
+    max_port = row['max_port'] if row and row['max_port'] is not None else 8999
+    
+    new_port = max_port + 1
+    
+    cursor.execute("INSERT INTO docker_ports (domain, port) VALUES (?, ?)", (domain, new_port))
+    conn.commit()
+    conn.close()
+    
+    return new_port
+
+def release_docker_port(domain):
+    """Release the allocated port for a docker domain."""
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM docker_ports WHERE domain = ?", (domain,))
+    conn.commit()
+    conn.close()
+
 
 
 def get_owner_of_resource(resource_type, resource_name):

@@ -136,12 +136,9 @@
                         <div class="flex-grow-1" style="min-width: 250px;">
                             <input type="text" class="form-control" name="domain" placeholder="example.com" required>
                         </div>
-                        <div style="width: 150px;">
-                            <input type="number" class="form-control" name="port" placeholder="Port (e.g. 8080)" required min="1" max="65535">
-                        </div>
                         <button type="submit" class="btn btn-primary text-nowrap"><i class="fas fa-plus me-2"></i> Create Proxy</button>
                     </form>
-                    <small class="text-muted mt-2 d-block">This will configure a reverse proxy to forward traffic to the specified local port where your Docker container is exposed.</small>
+                    <small class="text-muted mt-2 d-block">This will configure a reverse proxy and automatically allocate a unique port for your Docker container to bind to.</small>
                 </div>
             </div>
         </div>

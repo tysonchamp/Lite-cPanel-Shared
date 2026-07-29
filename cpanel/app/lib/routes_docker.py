@@ -8,7 +8,7 @@ from docker_mgr import (
     is_docker_installed, list_containers, manage_container, run_container,
     get_docker_apps, add_docker_app, toggle_docker_app, delete_docker_app, run_docker_compose
 )
-from hosting_mgr import can_add_resource
+from hosting_mgr import can_add_resource, allocate_docker_port, release_docker_port
 from domains_mgr import get_port80_webserver
 
 docker_bp = Blueprint('docker', __name__)
@@ -44,18 +44,12 @@ def docker_route():
 
         elif action == 'proxy_add':
             domain = request.form.get('domain')
-            port_str = request.form.get('port')
             
             v, e = validate_input(domain, 'domain')
             if not v:
                 flash(f"Validation failed: {e}", "danger")
                 return redirect(url_for('docker.docker_route'))
                 
-            if not port_str or not port_str.isdigit():
-                flash("Valid port number is required.", "danger")
-                return redirect(url_for('docker.docker_route'))
-                
-            port = int(port_str)
             role = session.get('role')
             username = session.get('username')
             
@@ -65,9 +59,11 @@ def docker_route():
                     flash(err, 'danger')
                     return redirect(url_for('docker.docker_route'))
 
+            port = allocate_docker_port(domain)
+
             success, message = add_docker_app(domain, port, role, username)
             if success:
-                flash(message, 'success')
+                flash(f"{message} Port allocated: {port}", 'success')
             else:
                 flash(message, 'danger')
 
@@ -88,6 +84,7 @@ def docker_route():
             username = session.get('username')
             success, message = delete_docker_app(domain, role, username)
             if success:
+                release_docker_port(domain)
                 flash(message, 'success')
             else:
                 flash(message, 'danger')
