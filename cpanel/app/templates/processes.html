@@ -55,12 +55,17 @@
                     
                     <div class="col-md-6">
                         <label class="form-label small fw-bold">Select Next.js Domain</label>
-                        <select name="domain" id="domainSelect" class="form-select" required>
-                            <option value="">-- Choose a Domain --</option>
+                        <select name="domain" id="domainSelect" class="form-select" required onchange="document.getElementById('domainPath').value = this.options[this.selectedIndex].dataset.path || ''">
+                            <option value="" data-path="">-- Choose a Domain --</option>
                             {% for app in configured_apps %}
-                            <option value="{{ app.domain }}">{{ app.domain }} (Auto Port: {{ app.port }})</option>
+                            <option value="{{ app.domain }}" data-path="{{ app.path }}">{{ app.domain }} (Auto Port: {{ app.port }})</option>
                             {% endfor %}
                         </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">App Directory Path</label>
+                        <input type="text" name="path" id="domainPath" class="form-control" required placeholder="/home/user/public_html/app">
                     </div>
 
                     <div class="col-md-3">
@@ -95,6 +100,7 @@
         for (let i = 0; i < select.options.length; i++) {
             if (select.options[i].value === domain) {
                 select.selectedIndex = i;
+                document.getElementById('domainPath').value = select.options[i].dataset.path || '';
                 break;
             }
         }

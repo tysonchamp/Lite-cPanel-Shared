@@ -114,20 +114,10 @@ def process_manager():
                 flash("Port not found for this domain. Did you add it in the Next.js apps section?", "danger")
                 return redirect(url_for('nextjs.process_manager'))
 
-            username = session.get('username')
-            role = session.get('role')
-            
-            # Admins starting apps that belong to users?
-            # For now, let's just determine directory for the logged-in user.
-            user_data = get_user_data(username)
-            if user_data and domain == user_data.get('main_domain'):
-                path = f"/home/{username}/public_html"
-            else:
-                path = f"/home/{username}/public_html/{domain}"
-                
-            # If admin is testing, they might not have a /home/admin/public_html, but let's assume they manage their own
-            if role == 'admin' and not user_data:
-                 path = f"/var/www/{domain}" # Fallback for admin standalone domains
+            path = request.form.get('path')
+            if not path:
+                flash("Path is required.", "danger")
+                return redirect(url_for('nextjs.process_manager'))
 
             success, msg = start_nextjs_app(path, domain, port)
             flash(msg, 'success' if success else 'danger')
@@ -139,17 +129,10 @@ def process_manager():
             
         elif action in ['npm_install', 'npm_build']:
             domain = request.form.get('domain')
-            username = session.get('username')
-            role = session.get('role')
-            
-            user_data = get_user_data(username)
-            if user_data and domain == user_data.get('main_domain'):
-                path = f"/home/{username}/public_html"
-            else:
-                path = f"/home/{username}/public_html/{domain}"
-                
-            if role == 'admin' and not user_data:
-                 path = f"/var/www/{domain}"
+            path = request.form.get('path')
+            if not path:
+                flash("Path is required.", "danger")
+                return redirect(url_for('nextjs.process_manager'))
 
             cmd = 'install' if action == 'npm_install' else 'run build'
             success, msg = run_npm_command(path, cmd)

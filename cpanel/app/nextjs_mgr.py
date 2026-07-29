@@ -78,9 +78,24 @@ def get_nextjs_apps(role='admin', username=None):
         if os.path.exists(f'/etc/letsencrypt/live/{domain}/fullchain.pem'):
             grouped_apps[domain]['has_ssl'] = True
 
+    user_db = get_users()
+    
+    # Attach the correct path for each app
+    for app in grouped_apps.values():
+        domain = app['domain']
+        app['path'] = f"/var/www/{domain}" # Default for admin apps
+        
+        # Determine if owned by a user
+        for uname, udata in user_db.items():
+            if domain in udata.get('nextjs_apps', []):
+                if domain == udata.get('main_domain'):
+                    app['path'] = f"/home/{uname}/public_html"
+                else:
+                    app['path'] = f"/home/{uname}/public_html/{domain}"
+                break
+
     # Filter by user ownership if not admin
     if role == 'user' and username:
-        user_db = get_users()
         user_apps = user_db.get(username, {}).get('nextjs_apps', [])
         return [v for k, v in grouped_apps.items() if k in user_apps]
 
@@ -191,6 +206,22 @@ def add_nextjs_app(domain, port, role='admin', username=None):
             
         if role == 'user' and username:
             add_user_resource(username, 'nextjs_apps', domain)
+            
+            # Create document root directory automatically
+            from hosting_mgr import get_user_data
+            user_data = get_user_data(username)
+            if user_data and domain == user_data.get('main_domain'):
+                doc_root = f"/home/{username}/public_html"
+            else:
+                doc_root = f"/home/{username}/public_html/{domain}"
+                
+            if not os.path.exists(doc_root):
+                os.makedirs(doc_root, exist_ok=True)
+                subprocess.run(['chown', '-R', f"{username}:{username}", doc_root], capture_output=True)
+        else:
+            doc_root = f"/var/www/{domain}"
+            if not os.path.exists(doc_root):
+                os.makedirs(doc_root, exist_ok=True)
             
         return True, f"Next.js proxy for {domain} created successfully."
     except Exception as e:
