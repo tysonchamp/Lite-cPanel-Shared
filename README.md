@@ -41,6 +41,12 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - **System Services Monitor** — live status badges (Active / Inactive / Failed / Uninstalled) for Apache, Nginx, PHP-FPM, MySQL, MongoDB, Mongo Express, CSF Firewall, ModSecurity, and Lite cPanel itself
 - One-click **Restart** button for each service directly from the dashboard
 
+### 👥 Multi-User & Hosting Plans
+- **Role-Based Access Control** — Isolate regular users from the main Admin account
+- **Hosting Plans** — Create custom plans with precise resource limits (Domains, MySQL, MongoDB, Next.js, Docker, FTP, etc.)
+- **User Isolation** — Users operate within their own home directories with isolated FTP access and private cron jobs
+- **Resource Enforcement** — Automatically tracks and prevents users from exceeding their allocated plan limits
+
 ### 🌐 Domain Manager
 - Add and remove Apache/Nginx virtual hosts with a single click
 - Enable/Disable individual domains without deleting them
@@ -105,6 +111,11 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - **One-Click Startup** — Quickly launch Next.js apps on custom ports with automatic persistence
 - **NVM Awareness** — Automatically detects and supports Node.js versions installed via NVM
 
+### 🐳 Docker Manager
+- **Docker Domain Proxy** — Map any domain to a Docker container seamlessly
+- **Automatic Port Allocation** — Automatically assigns available ports (9000+) to prevent conflicts and ensure tracking
+- **Secure Isolation** — Integrated tightly with hosting plan limits
+
 ### 🌐 Domain & SSL Manager
 - **Smart SSL Generation** — Automatically detects which webserver (Apache/Nginx) is serving port 80 to choose the correct Certbot plugin
 - **DNS Verification** — Automatically verifies DNS resolution for the `www` subdomain before including it in the SSL request, preventing validation failures
@@ -127,9 +138,10 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - Run interactive console tools like `nano`, `htop`, or `top` natively
 
 ### 🕒 Cron Job Manager
-- View, add, and delete system scheduled tasks directly from the UI
+- View, add, and delete scheduled tasks directly from the UI
+- **Per-User Isolation** — Regular users only see and manage their own cron jobs (`crontab -u`)
 - Beginner-friendly dropdown scheduler (Minute, Hour, Day, Month, Weekday)
-- **1-Click Let's Encrypt auto-renewal setup**
+- **1-Click Let's Encrypt auto-renewal setup** (Admin only)
 - Safely parses and preserves existing cron comments and advanced macros
 
 ### 💾 Backup Manager
@@ -191,7 +203,7 @@ All stacks include **MariaDB**, **phpMyAdmin**, and optional **MongoDB**.
 ## Installation
 
 ### Requirements
-- Ubuntu 20.04+ or Debian 11+
+- Ubuntu 24.04+ or Debian 11+
 - Root or `sudo` access
 - Internet connection
 - Git
@@ -199,14 +211,14 @@ All stacks include **MariaDB**, **phpMyAdmin**, and optional **MongoDB**.
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/tysonchamp/Lite-cPanel.git
-cd Lite-cPanel
+git clone https://github.com/tysonchamp/Lite-cPanel-Shared.git
+cd Lite-cPanel-Shared
 ```
 
 ### Step 2 — Run the stack installer
 
 ```bash
-sudo bash install.sh
+chmod +x install.sh && ./install.sh
 ```
 
 The installer will:
@@ -225,7 +237,8 @@ Open your browser and navigate to:
 http://<your-server-ip>:2083
 ```
 
-Log in with any **Linux system user** account on that server (e.g. your SSH username/password).
+Log in with your **root** account or any standard Linux system user (e.g., your SSH username/password). 
+Any system account not explicitly assigned to a hosting plan receives **Admin** privileges. From the Admin dashboard, you can create Hosting Plans and provision isolated User accounts.
 
 ---
 
@@ -321,9 +334,9 @@ Please follow [Conventional Commits](https://www.conventionalcommits.org/) for c
 
 - [ ] Email server management (Postfix/Dovecot)
 - [x] Automated backups (scheduled tar/mysqldump with remote upload)
-- [ ] Multi-user support with role-based access control
+- [x] Multi-user support with role-based access control
 - [x] Let's Encrypt auto-renewal via cron
-- [ ] Docker containerization support
+- [x] Docker containerization support
 - [x] Web-based terminal (xterm.js integration)
 - [x] MongoDB & Mongo Express management
 - [x] File Manager with compress/extract support
