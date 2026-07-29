@@ -83,6 +83,7 @@
 </div>
 
 <div class="row g-4 mt-2">
+    {% if session.get('role') == 'admin' %}
     <div class="col-md-6">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -109,6 +110,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
     {% if session.get('role') == 'admin' %}
     <div class="col-md-6">
         <div class="card h-100">
