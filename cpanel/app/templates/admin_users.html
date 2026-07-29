@@ -66,12 +66,41 @@
                                 <td class="text-center">{{ details.databases|length }}</td>
                                 <td class="text-center">{{ details.nextjs_apps|length }}</td>
                                 <td class="text-end pe-4">
+                                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editUserPlanModal-{{ loop.index }}" title="Change Plan"><i class="fas fa-edit"></i></button>
                                     <form action="{{ url_for('admin.admin_users') }}" method="POST" class="d-inline">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <input type="hidden" name="action" value="delete"/>
                                         <input type="hidden" name="username" value="{{ username }}"/>
                                         <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete user? This does not delete their files, only from the cPanel tracking.');"><i class="fas fa-trash"></i></button>
                                     </form>
+
+                                    <!-- Edit User Plan Modal -->
+                                    <div class="modal fade text-start" id="editUserPlanModal-{{ loop.index }}" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Change Plan for {{ username }}</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <form action="{{ url_for('admin.admin_users') }}" method="POST">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                        <input type="hidden" name="action" value="edit_plan"/>
+                                                        <input type="hidden" name="username" value="{{ username }}"/>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Hosting Plan</label>
+                                                            <select name="plan" class="form-select" required>
+                                                                {% for plan_name in plans %}
+                                                                <option value="{{ plan_name }}" {% if plan_name == details.plan %}selected{% endif %}>{{ plan_name }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                        <button type="submit" class="btn btn-primary w-100">Update Plan</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                             {% else %}

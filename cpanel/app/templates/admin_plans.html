@@ -31,6 +31,10 @@
                         <label class="form-label text-muted small fw-bold">Max Next.js Apps</label>
                         <input type="number" name="max_nextjs" class="form-control" required value="0" min="0">
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold">Max Docker Proxies</label>
+                        <input type="number" name="max_docker" class="form-control" required value="0" min="0">
+                    </div>
                     <button type="submit" class="btn btn-primary w-100">Create Plan</button>
                 </form>
             </div>
@@ -49,6 +53,7 @@
                                 <th class="border-0 text-muted small text-center">MySQL</th>
                                 <th class="border-0 text-muted small text-center">MongoDB</th>
                                 <th class="border-0 text-muted small text-center">Next.js</th>
+                                <th class="border-0 text-muted small text-center">Docker</th>
                                 <th class="border-0 text-muted small text-end pe-4">Actions</th>
                             </tr>
                         </thead>
@@ -60,13 +65,55 @@
                                 <td class="text-center">{{ details.max_databases }}</td>
                                 <td class="text-center">{{ details.max_mongodb }}</td>
                                 <td class="text-center">{{ details.max_nextjs }}</td>
+                                <td class="text-center">{{ details.max_docker }}</td>
                                 <td class="text-end pe-4">
+                                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editPlanModal-{{ loop.index }}"><i class="fas fa-edit"></i></button>
                                     <form action="{{ url_for('admin.admin_plans') }}" method="POST" class="d-inline">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <input type="hidden" name="action" value="delete"/>
                                         <input type="hidden" name="name" value="{{ name }}"/>
                                         <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this plan?');"><i class="fas fa-trash"></i></button>
                                     </form>
+
+                                    <!-- Edit Plan Modal -->
+                                    <div class="modal fade text-start" id="editPlanModal-{{ loop.index }}" tabindex="-1" aria-hidden="true">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title">Edit Plan: {{ name }}</h5>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    <form action="{{ url_for('admin.admin_plans') }}" method="POST">
+                                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                                        <input type="hidden" name="action" value="edit"/>
+                                                        <input type="hidden" name="name" value="{{ name }}"/>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Max Domains</label>
+                                                            <input type="number" name="max_domains" class="form-control" required value="{{ details.max_domains }}" min="0">
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Max MySQL Databases</label>
+                                                            <input type="number" name="max_databases" class="form-control" required value="{{ details.max_databases }}" min="0">
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Max MongoDB Databases</label>
+                                                            <input type="number" name="max_mongodb" class="form-control" required value="{{ details.max_mongodb }}" min="0">
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Max Next.js Apps</label>
+                                                            <input type="number" name="max_nextjs" class="form-control" required value="{{ details.max_nextjs }}" min="0">
+                                                        </div>
+                                                        <div class="mb-3">
+                                                            <label class="form-label text-muted small fw-bold">Max Docker Proxies</label>
+                                                            <input type="number" name="max_docker" class="form-control" required value="{{ details.max_docker }}" min="0">
+                                                        </div>
+                                                        <button type="submit" class="btn btn-primary w-100">Save Changes</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                             {% else %}

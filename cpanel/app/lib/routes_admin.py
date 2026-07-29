@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from auth import login_required, admin_required
 
-from hosting_mgr import get_plans, add_plan, delete_plan, get_users, add_user, delete_user
+from hosting_mgr import get_plans, add_plan, delete_plan, get_users, add_user, delete_user, update_plan, update_user_plan
 from domains_mgr import add_virtual_host
 from ftp_mgr import create_ftp_user, toggle_ftp_user_status, check_pureftpd_installed
 
@@ -19,10 +19,23 @@ def admin_plans():
             max_databases = request.form.get('max_databases', 0)
             max_nextjs = request.form.get('max_nextjs', 0)
             max_mongodb = request.form.get('max_mongodb', 0)
+            max_docker = request.form.get('max_docker', 0)
             if not name:
                 flash('Plan name is required.', 'danger')
             else:
-                ok, msg = add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb)
+                ok, msg = add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb, max_docker)
+                flash(msg, 'success' if ok else 'danger')
+        elif action == 'edit':
+            name = request.form.get('name')
+            max_domains = request.form.get('max_domains', 0)
+            max_databases = request.form.get('max_databases', 0)
+            max_nextjs = request.form.get('max_nextjs', 0)
+            max_mongodb = request.form.get('max_mongodb', 0)
+            max_docker = request.form.get('max_docker', 0)
+            if not name:
+                flash('Plan name is required.', 'danger')
+            else:
+                ok, msg = update_plan(name, max_domains, max_databases, max_nextjs, max_mongodb, max_docker)
                 flash(msg, 'success' if ok else 'danger')
         elif action == 'delete':
             name = request.form.get('name')
@@ -67,6 +80,14 @@ def admin_users():
                                 flash(f"Failed to auto-create FTP account: {ftp_msg}", 'warning')
                 else:
                     flash(msg, 'danger')
+        elif action == 'edit_plan':
+            username = request.form.get('username')
+            plan = request.form.get('plan')
+            if not username or not plan:
+                flash("Username and Plan are required.", "danger")
+            else:
+                ok, msg = update_user_plan(username, plan)
+                flash(msg, 'success' if ok else 'danger')
         elif action == 'delete':
             username = request.form.get('username')
             ok, msg = delete_user(username)

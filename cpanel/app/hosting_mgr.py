@@ -124,6 +124,22 @@ def delete_plan(name):
     conn.close()
     return True, "Plan deleted."
 
+def update_plan(name, max_domains, max_databases, max_nextjs, max_mongodb=0, max_docker=0):
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM plans WHERE name = ?", (name,))
+    if not cursor.fetchone():
+        conn.close()
+        return False, "Plan does not exist."
+    
+    cursor.execute(
+        "UPDATE plans SET max_domains = ?, max_databases = ?, max_nextjs = ?, max_mongodb = ?, max_docker = ? WHERE name = ?",
+        (int(max_domains), int(max_databases), int(max_nextjs), int(max_mongodb), int(max_docker), name)
+    )
+    conn.commit()
+    conn.close()
+    return True, "Plan updated successfully."
+
 # Users Management
 def get_users():
     conn = _get_conn()
@@ -248,6 +264,24 @@ def delete_user(username):
     conn.commit()
     conn.close()
     return True, "User deleted."
+
+def update_user_plan(username, new_plan_name):
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM plans WHERE name = ?", (new_plan_name,))
+    if not cursor.fetchone():
+        conn.close()
+        return False, "Plan does not exist."
+        
+    cursor.execute("SELECT username FROM users WHERE username = ?", (username,))
+    if not cursor.fetchone():
+        conn.close()
+        return False, "User not found."
+        
+    cursor.execute("UPDATE users SET plan_name = ? WHERE username = ?", (new_plan_name, username))
+    conn.commit()
+    conn.close()
+    return True, f"Plan updated successfully for {username}."
 
 # Resource Tracking
 def add_user_resource(username, resource_type, resource_name):
