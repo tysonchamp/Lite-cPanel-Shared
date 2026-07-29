@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Docker Management{% endblock %}
+
+{% block content %}
+<ul class="nav nav-tabs mb-4" id="dockerTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active fw-bold" id="containers-tab" data-bs-toggle="tab" data-bs-target="#containers" type="button" role="tab" aria-controls="containers" aria-selected="true"><i class="fas fa-box me-2"></i> Containers</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link fw-bold" id="domains-tab" data-bs-toggle="tab" data-bs-target="#domains" type="button" role="tab" aria-controls="domains" aria-selected="false"><i class="fas fa-globe me-2"></i> Domain Proxies</button>
+  </li>
+</ul>
+
+<div class="tab-content" id="dockerTabsContent">
+  <!-- Containers Tab -->
+  <div class="tab-pane fade show active" id="containers" role="tabpanel" aria-labelledby="containers-tab">
+    
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Run New Container</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('docker.docker_route') }}" class="row g-3 align-items-center">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="run">
+                        
+                        <div class="col-md-3">
+                            <input type="text" class="form-control" name="image" placeholder="Image (e.g. nginx:alpine)" required>
+                        </div>
+                        <div class="col-md-3">
+                            <input type="text" class="form-control" name="name" placeholder="Container Name (optional)">
+                        </div>
+                        <div class="col-md-3">
+                            <input type="text" class="form-control" name="port_mapping" placeholder="Ports (e.g. 8080:80)">
+                        </div>
+                        <div class="col-md-2">
+                            <input type="text" class="form-control" name="env_vars" placeholder="ENV (e.g. KEY=VAL)">
+                        </div>
+                        <div class="col-md-1">
+                            <button type="submit" class="btn btn-primary w-100"><i class="fas fa-play"></i> Run</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0">Containers</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th>Container ID</th>
+                                    <th>Name</th>
+                                    <th>Image</th>
+                                    <th>Status</th>
+                                    <th>Ports</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for container in containers %}
+                                <tr>
+                                    <td class="align-middle font-monospace small">{{ container.ID }}</td>
+                                    <td class="align-middle fw-bold">{{ container.Names }}</td>
+                                    <td class="align-middle text-muted">{{ container.Image }}</td>
+                                    <td class="align-middle">
+                                        {% if 'Up' in container.Status %}
+                                        <span class="badge bg-success">{{ container.Status }}</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ container.Status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="align-middle small">{{ container.Ports }}</td>
+                                    <td class="align-middle">
+                                        <div class="d-flex align-items-center gap-1">
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="container_id" value="{{ container.ID }}">
+                                                
+                                                {% if 'Up' in container.Status %}
+                                                <input type="hidden" name="action" value="stop">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Stop"><i class="fas fa-stop"></i></button>
+                                                
+                                                <button type="submit" name="action" value="restart" class="btn btn-sm btn-outline-info" title="Restart"><i class="fas fa-sync"></i></button>
+                                                {% else %}
+                                                <input type="hidden" name="action" value="start">
+                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Start"><i class="fas fa-play"></i></button>
+                                                {% endif %}
+                                            </form>
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to delete this container?');">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="rm">
+                                                <input type="hidden" name="container_id" value="{{ container.ID }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash"></i></button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">No containers found or Docker is not installed.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <!-- Domain Proxies Tab -->
+  <div class="tab-pane fade" id="domains" role="tabpanel" aria-labelledby="domains-tab">
+    
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Add Docker Domain Proxy</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('docker.docker_route') }}" class="d-flex align-items-center gap-3 flex-wrap">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="proxy_add">
+                        <div class="flex-grow-1" style="min-width: 250px;">
+                            <input type="text" class="form-control" name="domain" placeholder="example.com" required>
+                        </div>
+                        <div style="width: 150px;">
+                            <input type="number" class="form-control" name="port" placeholder="Port (e.g. 8080)" required min="1" max="65535">
+                        </div>
+                        <button type="submit" class="btn btn-primary text-nowrap"><i class="fas fa-plus me-2"></i> Create Proxy</button>
+                    </form>
+                    <small class="text-muted mt-2 d-block">This will configure a reverse proxy to forward traffic to the specified local port where your Docker container is exposed.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0">Docker Proxy Hosts</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Docker Port</th>
+                                    <th>Status</th>
+                                    <th>SSL</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for app in docker_apps %}
+                                <tr>
+                                    <td class="align-middle fw-bold">
+                                        {{ app.domain }}<br>
+                                        <small class="text-muted">
+                                            {% for srv in app.servers %}
+                                                <span class="badge bg-secondary">{{ srv }}</span>
+                                            {% endfor %}
+                                        </small>
+                                    </td>
+                                    <td class="align-middle">
+                                        <span class="badge bg-info text-dark"><i class="fas fa-plug me-1"></i> {{ app.port }}</span>
+                                    </td>
+                                    <td class="align-middle">
+                                        {% if app.enabled %}
+                                        <span class="badge bg-success">Enabled</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">Disabled</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="align-middle">
+                                        {% if app.has_ssl %}
+                                        <span class="badge bg-success"><i class="fas fa-lock"></i> Secured</span>
+                                        {% else %}
+                                        <span class="badge bg-warning text-dark"><i class="fas fa-unlock"></i> Unsecured</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="align-middle">
+                                        <div class="d-flex align-items-center gap-1">
+                                            <!-- Toggle Form -->
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="proxy_toggle">
+                                                <input type="hidden" name="domain" value="{{ app.domain }}">
+                                                {% if app.enabled %}
+                                                <input type="hidden" name="enable" value="false">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Disable"><i class="fas fa-power-off"></i></button>
+                                                {% else %}
+                                                <input type="hidden" name="enable" value="true">
+                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Enable"><i class="fas fa-play"></i></button>
+                                                {% endif %}
+                                            </form>
+
+                                            <!-- Logs -->
+                                            <a href="{{ url_for('domains.domain_logs', domain=app.domain) }}" class="btn btn-sm btn-outline-info" title="Logs"><i class="fas fa-file-alt"></i></a>
+
+                                            <!-- Edit Configs -->
+                                            {% for server, path in app.config_paths.items() %}
+                                            <a href="{{ url_for('domains.edit_vhost', filepath=path, source='docker') }}" class="btn btn-sm btn-outline-secondary" title="Edit {{ server }} Config">
+                                                <i class="fas fa-edit"></i>
+                                                <small style="font-size: 0.6rem; vertical-align: top;">{{ server[0] }}</small>
+                                            </a>
+                                            {% endfor %}
+
+                                            <!-- SSL Actions -->
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="domain" value="{{ app.domain }}">
+                                                <input type="hidden" name="servers" value="{{ app.servers|join(',') }}">
+                                                {% if app.has_ssl %}
+                                                <input type="hidden" name="action" value="ssl_renew">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary" title="Renew SSL"><i class="fas fa-sync"></i></button>
+                                                {% else %}
+                                                <input type="hidden" name="action" value="ssl_generate">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary" title="Generate SSL"><i class="fas fa-shield-alt"></i></button>
+                                                {% endif %}
+                                            </form>
+                                            
+                                            <!-- Compose Up Action -->
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="proxy_compose_up">
+                                                <input type="hidden" name="domain" value="{{ app.domain }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Build & Run (Compose)"><i class="fas fa-magic"></i></button>
+                                            </form>
+                                            
+                                            <!-- Delete Action -->
+                                            <form method="POST" action="{{ url_for('docker.docker_route') }}" class="mb-0" onsubmit="return confirm('Are you sure you want to delete this Docker proxy configuration?');">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="proxy_delete">
+                                                <input type="hidden" name="domain" value="{{ app.domain }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Proxy"><i class="fas fa-trash"></i></button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">No Docker proxy apps found.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

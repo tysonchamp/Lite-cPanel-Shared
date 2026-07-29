@@ -20,7 +20,8 @@ def _init_db(conn):
             max_domains INTEGER,
             max_databases INTEGER,
             max_mongodb INTEGER DEFAULT 0,
-            max_nextjs INTEGER
+            max_nextjs INTEGER,
+            max_docker INTEGER DEFAULT 0
         )
     ''')
     cursor.execute('''
@@ -51,6 +52,11 @@ def _init_db(conn):
     except sqlite3.OperationalError:
         pass
         
+    try:
+        cursor.execute("ALTER TABLE plans ADD COLUMN max_docker INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS nextjs_ports (
             domain TEXT PRIMARY KEY,
@@ -71,12 +77,13 @@ def get_plans():
             "max_domains": row['max_domains'],
             "max_databases": row['max_databases'],
             "max_mongodb": row['max_mongodb'],
-            "max_nextjs": row['max_nextjs']
+            "max_nextjs": row['max_nextjs'],
+            "max_docker": row['max_docker']
         }
     conn.close()
     return plans
 
-def add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb=0):
+def add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb=0, max_docker=0):
     conn = _get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM plans WHERE name = ?", (name,))
@@ -85,8 +92,8 @@ def add_plan(name, max_domains, max_databases, max_nextjs, max_mongodb=0):
         return False, "Plan already exists."
     
     cursor.execute(
-        "INSERT INTO plans (name, max_domains, max_databases, max_nextjs, max_mongodb) VALUES (?, ?, ?, ?, ?)",
-        (name, int(max_domains), int(max_databases), int(max_nextjs), int(max_mongodb))
+        "INSERT INTO plans (name, max_domains, max_databases, max_nextjs, max_mongodb, max_docker) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, int(max_domains), int(max_databases), int(max_nextjs), int(max_mongodb), int(max_docker))
     )
     conn.commit()
     conn.close()
@@ -124,7 +131,8 @@ def get_users():
             "domains": [],
             "databases": [],
             "mongodb": [],
-            "nextjs_apps": []
+            "nextjs_apps": [],
+            "docker_apps": []
         }
         
     cursor.execute("SELECT * FROM user_resources")
@@ -157,7 +165,8 @@ def get_user_plan_limits(username):
             "max_domains": row['max_domains'],
             "max_databases": row['max_databases'],
             "max_mongodb": row['max_mongodb'],
-            "max_nextjs": row['max_nextjs']
+            "max_nextjs": row['max_nextjs'],
+            "max_docker": row['max_docker']
         }
     return None
 
