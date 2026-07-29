@@ -114,10 +114,12 @@ def process_manager():
                 flash("Port not found for this domain. Did you add it in the Next.js apps section?", "danger")
                 return redirect(url_for('nextjs.process_manager'))
 
-            path = request.form.get('path')
-            if not path:
-                flash("Path is required.", "danger")
+            target_app = next((app for app in configured_apps if app['domain'] == domain), None)
+            if not target_app:
+                flash("Invalid domain selected or you do not have permission for this domain.", "danger")
                 return redirect(url_for('nextjs.process_manager'))
+                
+            path = target_app['path']
 
             success, msg = start_nextjs_app(path, domain, port)
             flash(msg, 'success' if success else 'danger')
@@ -128,11 +130,12 @@ def process_manager():
             flash(msg, 'success' if success else 'danger')
             
         elif action in ['npm_install', 'npm_build']:
-            domain = request.form.get('domain')
-            path = request.form.get('path')
-            if not path:
-                flash("Path is required.", "danger")
+            target_app = next((app for app in configured_apps if app['domain'] == domain), None)
+            if not target_app:
+                flash("Invalid domain selected or you do not have permission for this domain.", "danger")
                 return redirect(url_for('nextjs.process_manager'))
+                
+            path = target_app['path']
 
             cmd = 'install' if action == 'npm_install' else 'run build'
             success, msg = run_npm_command(path, cmd)
