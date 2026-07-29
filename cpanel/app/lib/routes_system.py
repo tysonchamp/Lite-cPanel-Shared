@@ -25,27 +25,32 @@ def terminal():
 @system_bp.route('/cron', methods=['GET', 'POST'])
 @login_required
 def cron():
+    target_user = None if session.get('role') == 'admin' else session.get('username')
+
     if request.method == 'POST':
         action = request.form.get('action')
         
         if action == 'add':
             schedule = request.form.get('schedule', '')
             command = request.form.get('command', '')
-            success, msg = add_cron_job(schedule, command)
+            success, msg = add_cron_job(schedule, command, target_user)
             flash(msg, "success" if success else "danger")
             
         elif action == 'delete':
             index = request.form.get('index')
-            success, msg = delete_cron_job(index)
+            success, msg = delete_cron_job(index, target_user)
             flash(msg, "success" if success else "danger")
             
         elif action == 'setup_ssl':
-            success, msg = enable_ssl_renewal()
-            flash(msg, "success" if success else "warning")
+            if session.get('role') != 'admin':
+                flash("Access denied.", "danger")
+            else:
+                success, msg = enable_ssl_renewal()
+                flash(msg, "success" if success else "warning")
             
         return redirect(url_for('system.cron'))
 
-    cron_jobs = get_cron_jobs()
+    cron_jobs = get_cron_jobs(target_user)
     return render_template('cron.html', cron_jobs=cron_jobs)
 
 @system_bp.route('/backups', methods=['GET', 'POST'])

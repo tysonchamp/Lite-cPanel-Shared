@@ -2,30 +2,36 @@ import subprocess
 import os
 import random
 
-def get_raw_crontab():
+def get_raw_crontab(username=None):
     """Retrieve the raw crontab contents as a list of lines."""
     try:
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
+        cmd = ['crontab', '-l']
+        if username:
+            cmd = ['crontab', '-u', username, '-l']
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             return result.stdout.splitlines()
         return []
     except Exception:
         return []
 
-def write_raw_crontab(lines):
+def write_raw_crontab(lines, username=None):
     """Write a list of lines back to the crontab."""
     content = "\n".join(lines) + "\n"
     try:
         # Use subprocess to pipe content into crontab
-        process = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        cmd = ['crontab', '-']
+        if username:
+            cmd = ['crontab', '-u', username, '-']
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         process.communicate(input=content.encode())
         return process.returncode == 0
     except Exception:
         return False
 
-def get_cron_jobs():
+def get_cron_jobs(username=None):
     """Parse the crontab into a structured list of dictionaries."""
-    lines = get_raw_crontab()
+    lines = get_raw_crontab(username)
     jobs = []
     
     for i, line in enumerate(lines):
@@ -62,9 +68,9 @@ def get_cron_jobs():
         
     return jobs
 
-def add_cron_job(schedule, command):
+def add_cron_job(schedule, command, username=None):
     """Add a new cron job to the end of the crontab."""
-    lines = get_raw_crontab()
+    lines = get_raw_crontab(username)
     
     # Simple validation
     if not schedule or not command:
@@ -73,21 +79,21 @@ def add_cron_job(schedule, command):
     new_job = f"{schedule.strip()} {command.strip()}"
     lines.append(new_job)
     
-    if write_raw_crontab(lines):
+    if write_raw_crontab(lines, username):
         return True, "Cron job added successfully."
     return False, "Failed to add cron job to system."
 
-def delete_cron_job(index):
+def delete_cron_job(index, username=None):
     """Delete a cron job by its original line index."""
     try:
         index = int(index)
     except ValueError:
         return False, "Invalid job index."
         
-    lines = get_raw_crontab()
+    lines = get_raw_crontab(username)
     if 0 <= index < len(lines):
         del lines[index]
-        if write_raw_crontab(lines):
+        if write_raw_crontab(lines, username):
             return True, "Cron job deleted successfully."
         return False, "Failed to update system crontab."
     return False, "Cron job not found."

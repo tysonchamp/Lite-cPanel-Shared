@@ -105,13 +105,13 @@
         <a href="{{ url_for('filemanager.filemanager_route') }}"><i class="fas fa-folder-tree"></i> File Manager</a>
         <a href="{{ url_for('filemanager.ftp') }}"><i class="fas fa-folder-open"></i> FTP Accounts</a>
         <a href="{{ url_for('wordpress.wordpress') }}"><i class="fab fa-wordpress"></i> WordPress</a>
+        <a href="{{ url_for('system.cron') }}"><i class="fas fa-clock"></i> Cron Jobs</a>
         
         {% if session.get('role') == 'admin' %}
         <a href="{{ url_for('system.backups') }}"><i class="fas fa-cloud-upload-alt"></i> Backups</a>
         <a href="{{ url_for('system.firewall') }}"><i class="fas fa-shield-alt"></i> Firewall</a>
         <a href="{{ url_for('system.modsecurity') }}"><i class="fas fa-user-shield"></i> ModSecurity</a>
         <a href="{{ url_for('system.terminal') }}"><i class="fas fa-terminal"></i> Terminal</a>
-        <a href="{{ url_for('system.cron') }}"><i class="fas fa-clock"></i> Cron Jobs</a>
         <a href="{{ url_for('system.settings') }}"><i class="fas fa-cogs"></i> Settings</a>
         <div style="border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;"></div>
         <a href="{{ url_for('admin.admin_plans') }}"><i class="fas fa-list-alt text-warning"></i> Hosting Plans</a>

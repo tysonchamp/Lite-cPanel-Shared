@@ -3,6 +3,7 @@
 {% block header_title %}Cron Job Management{% endblock %}
 
 {% block content %}
+{% if session.get('role') == 'admin' %}
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="card shadow-sm border-0 border-primary">
@@ -20,6 +21,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="row mb-4">
     <div class="col-12">
