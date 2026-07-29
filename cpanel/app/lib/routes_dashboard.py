@@ -66,7 +66,9 @@ def get_dashboard_traffic():
                         traffic_item = {'domain': domain, 'hits': gen.get('total_requests', 0), 'bandwidth': gen.get('bandwidth', 0), 'visitors': gen.get('unique_visitors', 0)}
                         if traffic_item['hits'] > 0: break
                 except: pass
-        if traffic_item: traffic_stats.append(traffic_item)
+        if not traffic_item:
+            traffic_item = {'domain': domain, 'hits': 0, 'bandwidth': 0, 'visitors': 0}
+        traffic_stats.append(traffic_item)
     return sorted(traffic_stats, key=lambda x: x['bandwidth'], reverse=True)
 
 def get_dashboard_security():
@@ -256,12 +258,22 @@ def traffic_monitor():
             f"/var/log/nginx/{domain_lower}.access.log",
             f"/var/log/apache2/{domain_lower}.access.log"
         ]
+        found = False
         for log_file in log_candidates:
             if os.path.exists(log_file):
                 stats = get_domain_traffic_helper(domain, log_file)
-                if stats and stats['hits'] > 0:
+                if stats:
                     traffic_stats.append(stats)
+                    found = True
                     break
+        
+        if not found:
+            traffic_stats.append({
+                'domain': domain,
+                'hits': 0,
+                'bandwidth': 0,
+                'visitors': 0
+            })
 
     traffic_stats = sorted(traffic_stats, key=lambda x: x['bandwidth'], reverse=True)
     return render_template('traffic.html', traffic_stats=traffic_stats)
