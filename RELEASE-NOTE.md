@@ -1,6 +1,6 @@
 # Updates:
 
-## 11.11.2026 (Multi-PHP Manager, Security Hardening & Complete Lifecycle Cleanup)
+## 11.11.2026 (BIND9 DNS Server, Nameserver Management, Multi-PHP Manager & Lifecycle Cleanup)
 
 1. **Multi-PHP Manager (`7.0`–`8.5`)**:
    - Added a complete Multi-PHP Manager (`php_mgr.py`, `routes_php.py`, `templates/php.html`) supporting PHP `7.0` through `8.5` across **Hybrid**, **Nginx**, and **Apache** stacks.
@@ -19,6 +19,11 @@
    - Upgraded Next.js app deletion (`nextjs_mgr.py`) to stop/remove matching PM2 processes, delete proxy vhosts/SSL/logs, release allocated ports, and safely delete the app directory (preserving `public_html` when attached to a `main_domain`).
 6. **Admin-Only Access Hardening**:
    - Enforced `@admin_required` and strict `role == 'admin'` checks on sensitive routes and installers (ModSecurity, MongoDB & Mongo Express install/credentials access, global PM2 installation, Multi-PHP management tabs/API/actions, Hosting Plans, Manage Users, System Settings, Firewall, Backups, and Web Terminal) and updated blueprint-namespaced auth redirects.
+7. **BIND9 DNS Server, Root Nameserver Management & Per-User DNS Manager**:
+   - Added a complete authoritative BIND9 DNS server module (`dns_mgr.py`, `routes_dns.py`, `templates/dns.html`) with pre-commit `named-checkzone` / `named-checkconf` validation, CNAME exclusivity checks, RFC 1035 multi-chunk TXT formatting, last apex `NS` protection, non-recursive hardening (`recursion no`, `allow-transfer { none; }`), and streaming in-panel BIND9 installation plus `install_cpanel.sh` provisioning.
+   - Added **Root Nameserver Management** (`?tab=nameservers` & sidebar **Nameservers (NS)** shortcut for `root`): configure global `NS1`–`NS4` nameservers and glue IPv4s, default IPv4/IPv6, hostmaster email, default TTL, auto-create toggle, automatic glue `A` record sync, one-click bulk zone synchronization, BIND9 service controls, and CSF TCP/UDP Port 53 opening.
+   - Added a dedicated **DNS Manager** sidebar menu (`/dns`) accessible to all users: shared hosting users can initialize and manage DNS zones (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `NS`, `SRV`, `CAA`), SPF/DMARC/CAA quick presets, zone enable/pause, reset, and raw zone previews strictly scoped to their own domains.
+   - Wired automatic DNS zone creation and deletion hooks into `domains_mgr.py`, `nextjs_mgr.py`, `docker_mgr.py`, `user_cleanup_mgr.py`, `routes_dashboard.py` service status/restart, and `settings_mgr.py` BIND config editing.
 
 ## 29.08.2026 (Multi-User, Hosting Plans, Docker & Modular Architecture Update)
 

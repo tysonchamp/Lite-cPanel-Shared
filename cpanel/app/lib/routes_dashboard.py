@@ -422,6 +422,9 @@ def api_services():
         php_fpm_id = res.stdout.strip().replace('.service', '') or 'php-fpm'
         php_fpm_entries = [{'id': php_fpm_id, 'name': 'PHP-FPM'}]
 
+    from dns_mgr import get_bind9_service_name, get_bind9_status
+    bind_svc_id = get_bind9_service_name()
+
     services = [
         {'id': 'apache2', 'name': 'Apache Engine'},
         {'id': 'nginx', 'name': 'Nginx Engine'},
@@ -429,6 +432,7 @@ def api_services():
         {'id': 'mariadb', 'name': 'MySQL / MariaDB'},
         {'id': 'mongod', 'name': 'MongoDB'},
         {'id': 'mongo-express', 'name': 'Mongo Express'},
+        {'id': bind_svc_id, 'name': 'BIND9 DNS'},
         {'id': 'csf', 'name': 'CSF Firewall'},
         {'id': 'cpanel', 'name': 'cPanel Platform'},
     ]
@@ -439,6 +443,10 @@ def api_services():
         if sys_id == 'mongo-express':
             me = get_mongo_express_status()
             srv['status'] = 'active' if me == 'active' else ('not_installed' if me == 'not_installed' else 'inactive')
+            continue
+        if sys_id == bind_svc_id:
+            dns_st = get_bind9_status()
+            srv['status'] = dns_st if dns_st in ['active', 'inactive', 'failed', 'not_installed'] else 'inactive'
             continue
         chk = subprocess.run(['systemctl', 'is-active', sys_id], capture_output=True, text=True)
         status = chk.stdout.strip()
@@ -486,6 +494,11 @@ def api_service_restart():
     if service_id == 'cpanel':
         subprocess.Popen(['bash', '-c', 'sleep 1 && systemctl restart cpanel.service'])
         return jsonify({'success': True, 'message': 'Process initiated in background...'})
+
+    if service_id in ('named', 'bind9'):
+        from dns_mgr import manage_bind9_service
+        ok, msg = manage_bind9_service('restart')
+        return jsonify({'success': ok, 'message': msg})
 
     is_php_fpm = (service_id == 'php-fpm' or bool(re.fullmatch(r'php\d+\.\d+-fpm', service_id)))
     if service_id not in ['apache2', 'nginx', 'mariadb', 'mysql', 'csf'] and not is_php_fpm:

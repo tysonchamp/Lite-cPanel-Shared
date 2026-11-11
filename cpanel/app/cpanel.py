@@ -99,6 +99,7 @@ from lib.routes_wordpress import wordpress_bp
 from lib.routes_admin import admin_bp
 from lib.routes_docker import docker_bp
 from lib.routes_php import php_bp
+from lib.routes_dns import dns_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -111,6 +112,7 @@ app.register_blueprint(wordpress_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(docker_bp)
 app.register_blueprint(php_bp)
+app.register_blueprint(dns_bp)
 
 if __name__ == '__main__':
     # Run on all interfaces, port 2083

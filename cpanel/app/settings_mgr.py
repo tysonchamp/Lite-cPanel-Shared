@@ -88,7 +88,9 @@ def get_editable_configs():
         ('/etc/apache2/apache2.conf', 'Main Apache config'),
         ('/etc/nginx/nginx.conf', 'Main Nginx config'),
         ('/etc/mysql/mariadb.conf.d/50-server.cnf', 'MariaDB Server config'),
-        ('/etc/pure-ftpd/pure-ftpd.conf', 'Pure-FTPd config')
+        ('/etc/pure-ftpd/pure-ftpd.conf', 'Pure-FTPd config'),
+        ('/etc/bind/named.conf.options', 'BIND9 DNS Options'),
+        ('/etc/bind/named.conf.local', 'BIND9 Local Zones')
     ]
 
     # Dynamically detect PHP versions and configs (FPM and Apache)
@@ -142,6 +144,9 @@ def save_config_file(filepath, content):
             if len(parts) >= 4:
                 version = parts[3]
                 subprocess.run(['systemctl', 'reload', f'php{version}-fpm'])
+        elif 'bind' in filepath:
+            from dns_mgr import manage_bind9_service
+            manage_bind9_service('reload')
 
         return True, "File saved successfully and service reloaded."
     except Exception as e:

@@ -55,7 +55,13 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - **Unified SSL & VHost Detection** — Merges Apache `-le-ssl.conf` configs under `Apache SSL` cleanly without duplicate `-le-ssl` rows, alongside Enable/Disable toggles without data loss
 - **Smart SSL Generation & Renewal** — Automatically detects which webserver (Apache/Nginx) is serving port 80 to select the right Snap-based Certbot plugin, with `www` DNS pre-verification
 - **Per-Domain Log Viewer & Inline Editor** — Tail Apache/Nginx access/error logs and syslog per domain, and edit Nginx, Apache, or `Apache SSL` vhost configs inline (Admin only)
-- **Clean Artifact Removal** — Deleting a domain removes Nginx/Apache configs, Let's Encrypt certs, domain logs, its document root (`/home/<owner>/public_html/<domain>` or `/var/www/<domain>`), and hosting plan tracking
+- **Clean Artifact Removal** — Deleting a domain removes Nginx/Apache configs, Let's Encrypt certs, domain logs, its document root (`/home/<owner>/public_html/<domain>` or `/var/www/<domain>`), its DNS zone, and hosting plan tracking
+
+### 🧭 DNS Server & Nameserver Manager (BIND9)
+- **Authoritative BIND9 Server (`recursion no`)** — Installs (`bind9`, `bind9utils`, `dnsutils`) via `install_cpanel.sh` or streaming in-panel installer, enforces `named-checkzone` and `named-checkconf` validation before every zone write, and exposes start/stop/restart/reload and Dashboard monitoring
+- **Root Nameserver Management (`Admin only`)** — Dedicated **Nameservers (NS)** menu for `root` to configure global `NS1`–`NS4` + glue IPv4s, default server IPv4/IPv6, SOA hostmaster email, default TTL, automatic glue `A` record syncing, bulk **Apply Nameservers to All Zones**, and one-click CSF Port 53 (TCP/UDP) firewall opening
+- **Per-User DNS Zone & Record Editor** — Dedicated **DNS Manager** sidebar menu for both `root` and shared hosting users (strictly scoped to each user's own domains) supporting `A`, `AAAA`, `CNAME`, `MX`, `TXT` (RFC 1035 chunking), `NS`, `SRV`, and `CAA` records, SPF/DMARC/CAA/MX quick presets, zone pause/enable, reset to defaults, and live BIND9 zone file preview
+- **Automatic Lifecycle Sync** — Automatically initializes DNS zones when users, domains, Next.js apps, or Docker apps are provisioned, and cleanly removes orphaned zones when addon domains, apps, or accounts are deleted
 
 ### 🐘 Multi-PHP Manager
 - **Multi-Version PHP Support (`7.0`–`8.5`)** — Install, uninstall (non-default, unused versions), and switch between PHP `7.0` through `8.5` (`php*-fpm` & CLI) across **Hybrid** (`Nginx + Apache FPM`), **Nginx** (`FastCGI`), and **Apache** (`proxy_fcgi`) stacks
@@ -281,7 +287,7 @@ Lite-cPanel-Shared/
 ├── PROJECT_GUIDELINES.md       # Security & coding standards
 ├── dns_management_study.md     # DNS management architecture study
 ├── scripts/
-│   ├── install_cpanel.sh       # Panel dependencies, Sury PHP repo & pins, systemd setup
+│   ├── install_cpanel.sh       # Panel dependencies, Sury PHP repo & pins, BIND9 DNS & systemd setup
 │   ├── web-stack-installer.sh  # Automated LAMP/LEMP/Hybrid stack & vhost installer
 │   ├── lamp-installer.sh       # Legacy LAMP installer script
 │   ├── vhost-manager.sh        # Virtual host setup helper
@@ -292,8 +298,9 @@ Lite-cPanel-Shared/
 │       ├── cpanel.py           # Flask application, WebSocket terminal & blueprint registry
 │       ├── auth.py             # PAM authentication & RBAC decorators
 │       ├── hosting_mgr.py      # SQLite hosting plans, tenant accounts, quotas & port allocators
-│       ├── user_cleanup_mgr.py # Ordered system resource cleanup (PM2, Docker, vhosts, SSL, DBs, FTP, Linux user)
+│       ├── user_cleanup_mgr.py # Ordered system resource cleanup (PM2, Docker, vhosts, SSL, DNS, DBs, FTP, Linux user)
 │       ├── domains_mgr.py      # Virtual host discovery, provisioning & safe deletion
+│       ├── dns_mgr.py          # BIND9 authoritative DNS server, root nameservers & per-tenant zone CRUD
 │       ├── php_mgr.py          # Multi-PHP (7.0-8.5), Sury APT isolation, updater, extensions & INI editor
 │       ├── nextjs_mgr.py       # Next.js Apps Manager (PM2, domain proxy & safe deletion)
 │       ├── docker_mgr.py       # Docker container, Compose & domain proxy manager
@@ -320,6 +327,7 @@ Lite-cPanel-Shared/
 │       │   ├── routes_databases.py
 │       │   ├── routes_docker.py
 │       │   ├── routes_domains.py
+│       │   ├── routes_dns.py
 │       │   ├── routes_filemanager.py
 │       │   ├── routes_nextjs.py
 │       │   ├── routes_php.py
@@ -334,6 +342,7 @@ Lite-cPanel-Shared/
 │           ├── dashboard.html
 │           ├── traffic.html
 │           ├── domains.html
+│           ├── dns.html
 │           ├── domain_logs.html
 │           ├── edit_config.html
 │           ├── php.html
@@ -376,7 +385,7 @@ Please follow [Conventional Commits](https://www.conventionalcommits.org/) for c
 ## Roadmap
 
 - [ ] Email server management (Postfix/Dovecot)
-- [ ] Built-in DNS management (Bind9/PowerDNS — see [dns_management_study.md](dns_management_study.md))
+- [x] Built-in DNS management (BIND9 authoritative server, Root Nameservers & per-user DNS zones)
 - [x] Automated backups (scheduled tar/mysqldump with remote upload)
 - [x] Multi-user support with role-based access control & full account resource cleanup
 - [x] Multi-PHP Manager (PHP 7.0–8.5, per-domain switching, isolated updater & INI editor)

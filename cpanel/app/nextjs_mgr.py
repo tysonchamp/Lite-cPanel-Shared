@@ -234,6 +234,14 @@ def add_nextjs_app(domain, port, role='admin', username=None):
             if not os.path.exists(doc_root):
                 os.makedirs(doc_root, exist_ok=True)
             
+        try:
+            import dns_mgr
+            dns_owner = username if (role == 'user' and username) else 'root'
+            dns_mgr.ensure_zone_for_domain(domain, owner=dns_owner)
+        except Exception as exc:
+            import logging
+            logging.warning("DNS auto-zone hook failed for Next.js app %s: %s", domain, exc)
+
         return True, f"Next.js proxy for {domain} created successfully."
     except Exception as e:
         return False, f"Failed to create Next.js proxy: {str(e)}"
@@ -361,11 +369,32 @@ def delete_nextjs_app(domain, role='admin', username=None):
             warnings.append(f"Failed removing directory {doc_root}: {exc}")
 
     # 4. Clean hosting tracking & port allocation
+    is_main_domain = False
+    still_used_by_owner = False
     if owner:
+        try:
+            from hosting_mgr import get_user_data
+            owner_data = get_user_data(owner) or {}
+            is_main_domain = owner_data.get('main_domain') == domain
+            still_used_by_owner = domain in (owner_data.get('domains') or []) or domain in (owner_data.get('docker_apps') or [])
+        except Exception:
+            pass
         remove_user_resource(owner, 'nextjs_apps', domain)
     release_nextjs_port(domain)
 
-    if not (servers_deleted or ssl_deleted or pm2_deleted or dir_deleted or owner):
+    dns_deleted = False
+    if (servers_deleted or ssl_deleted or pm2_deleted or dir_deleted or owner) and not is_main_domain and not still_used_by_owner:
+        try:
+            import dns_mgr
+            ok_dns, msg_dns = dns_mgr.delete_dns_zone(domain, reload_bind=True)
+            if ok_dns:
+                dns_deleted = True
+            elif msg_dns and "not found" not in msg_dns.lower():
+                warnings.append(msg_dns)
+        except Exception as exc:
+            warnings.append(f"Failed removing DNS zone for {domain}: {exc}")
+
+    if not (servers_deleted or ssl_deleted or pm2_deleted or dir_deleted or dns_deleted or owner):
         if warnings:
             return False, f"Errors deleting Next.js app: {'; '.join(warnings)}"
         return False, "Configuration not found for any web server."

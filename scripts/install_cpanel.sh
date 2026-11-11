@@ -16,7 +16,8 @@ apt-get install -y net-tools
 apt-get install -y libwww-perl liblwp-protocol-https-perl libgd-graph-perl libcrypt-ssleay-perl
 apt-get install -y zip unzip curl gnupg ca-certificates lsb-release
 apt-get install -y python3-venv python3-pip libmysqlclient-dev pkg-config \
-    pure-ftpd libwww-perl sendmail iptables wget tar goaccess
+    pure-ftpd libwww-perl sendmail iptables wget tar goaccess \
+    bind9 bind9utils dnsutils
 
 # Configure Sury PHP repository for Multi-PHP Manager (IPv4-first over HTTPS)
 # Also pin unversioned Sury/Ondrej PHP metapackages (-1) so apt upgrade / version installs
@@ -213,6 +214,10 @@ systemctl restart cpanel
 echo "Cleaning up phpMyAdmin auto login..."
 cd $CPANEL_DIR/app
 $CPANEL_DIR/venv/bin/python3 -c "import sys; sys.path.append('$CPANEL_DIR/app'); from database_mgr import setup_phpmyadmin_signon; setup_phpmyadmin_signon()"
+
+# Initialize BIND9 Authoritative DNS Server for Lite-cPanel
+echo "Configuring BIND9 DNS server..."
+$CPANEL_DIR/venv/bin/python3 -c "import sys, subprocess; sys.path.append('$CPANEL_DIR/app'); import hosting_mgr, dns_mgr; dns_mgr.ensure_bind9_base_config(); dns_mgr.rebuild_named_conf_lite(); svc = dns_mgr.get_bind9_service_name(); subprocess.run(['systemctl', 'enable', svc], check=False); dns_mgr.manage_bind9_service('restart'); dns_mgr.open_dns_port_in_csf()" || true
 
 # Get MySQL root password for display
 MYSQL_ROOT_PASS=$(grep "MySQL Root Password:" /var/lib/lite-cpanel/.passwords | cut -d: -f2- | sed 's/^ *//')

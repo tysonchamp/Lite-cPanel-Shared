@@ -289,6 +289,14 @@ def add_docker_app(domain, port, role='admin', username=None):
             if not os.path.exists(doc_root):
                 os.makedirs(doc_root, exist_ok=True)
             
+        try:
+            import dns_mgr
+            dns_owner = username if (role == 'user' and username) else 'root'
+            dns_mgr.ensure_zone_for_domain(domain, owner=dns_owner)
+        except Exception as exc:
+            import logging
+            logging.warning("DNS auto-zone hook failed for Docker app %s: %s", domain, exc)
+
         return True, f"Docker proxy for {domain} created successfully."
     except Exception as e:
         return False, f"Failed to create Docker proxy: {str(e)}"
@@ -363,12 +371,15 @@ def delete_docker_app(domain, role='admin', username=None):
         return False, f"Errors deleting Docker app: {', '.join(errors)}"
     elif deleted:
         doc_root = f'/var/www/{domain}'
+        is_main_domain = False
+        still_used_by_owner = False
+        user_data = None
         if role == 'user' and username:
             from hosting_mgr import get_user_data
             user_data = get_user_data(username)
             if user_data and domain == user_data.get('main_domain'):
                 # We don't completely delete the main domain's doc_root (public_html)
-                pass
+                is_main_domain = True
             else:
                 doc_root = f"/home/{username}/public_html/{domain}"
                 if os.path.exists(doc_root):
@@ -376,6 +387,30 @@ def delete_docker_app(domain, role='admin', username=None):
         else:
             if os.path.exists(doc_root):
                 shutil.rmtree(doc_root, ignore_errors=True)
+            try:
+                from hosting_mgr import get_owner_of_resource, get_user_data
+                owner_name = get_owner_of_resource('docker_apps', domain)
+                if owner_name:
+                    user_data = get_user_data(owner_name)
+                    if user_data and domain == user_data.get('main_domain'):
+                        is_main_domain = True
+            except Exception:
+                pass
+
+        if user_data:
+            still_used_by_owner = (
+                domain in (user_data.get('domains') or [])
+                or domain in (user_data.get('nextjs_apps') or [])
+            )
+
+        if not is_main_domain and not still_used_by_owner:
+            try:
+                import dns_mgr
+                dns_mgr.delete_dns_zone(domain, reload_bind=True)
+            except Exception as exc:
+                import logging
+                logging.warning("DNS zone cleanup failed for Docker app %s: %s", domain, exc)
+
         return True, f"Docker proxy for {domain} deleted successfully from: {', '.join(deleted)}."
     else:
         return False, "Configuration not found for any web server."

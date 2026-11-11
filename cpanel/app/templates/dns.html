@@ -1,0 +1,987 @@
+{% extends 'base.html' %}
+
+{% block header_title %}
+    {% if is_admin and active_tab == 'nameservers' %}
+        Nameserver Management (Root)
+    {% else %}
+        DNS Manager
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Top Summary & Service Cards -->
+<div class="row g-3 mb-4">
+    <!-- BIND9 Service Status -->
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small text-uppercase fw-bold">BIND9 DNS Server</span>
+                        {% if not bind9_installed %}
+                            <span class="badge bg-secondary">Not Installed</span>
+                        {% elif bind9_status == 'active' %}
+                            <span class="badge bg-success"><i class="fas fa-circle me-1" style="font-size:0.6em;"></i>Active</span>
+                        {% elif bind9_status == 'failed' %}
+                            <span class="badge bg-danger">Failed</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">{{ bind9_status|title }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="small text-muted mb-2">
+                        Daemon: <code>{{ bind9_service_name }}</code>
+                        {% if is_admin and csf_port53_open is not none %}
+                            {% if csf_port53_open %}
+                                <span class="badge bg-success-subtle text-success border border-success ms-1">Port 53 Open</span>
+                            {% else %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger ms-1">Port 53 Closed</span>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if is_admin %}
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    {% if not bind9_installed %}
+                    <input type="hidden" id="bindInstallCsrf" value="{{ csrf_token() }}">
+                    <button type="button" id="installBindBtn" class="btn btn-sm btn-primary" onclick="startBindInstall()">
+                        <i class="fas fa-download me-1"></i> Install BIND9
+                    </button>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('dns.dns_manager', tab=active_tab, domain=active_zone.domain if active_zone else '') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="service_action">
+                        <input type="hidden" name="service_action" value="reload">
+                        <button type="submit" class="btn btn-sm btn-outline-primary" title="Reload Zones"><i class="fas fa-sync-alt"></i> Reload</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('dns.dns_manager', tab=active_tab, domain=active_zone.domain if active_zone else '') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="service_action">
+                        <input type="hidden" name="service_action" value="restart">
+                        <button type="submit" class="btn btn-sm btn-outline-warning text-dark" title="Restart BIND9"><i class="fas fa-redo"></i></button>
+                    </form>
+                    {% if bind9_status == 'active' %}
+                    <form method="POST" action="{{ url_for('dns.dns_manager', tab=active_tab, domain=active_zone.domain if active_zone else '') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="service_action">
+                        <input type="hidden" name="service_action" value="stop">
+                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Stop BIND9"><i class="fas fa-stop"></i></button>
+                    </form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('dns.dns_manager', tab=active_tab, domain=active_zone.domain if active_zone else '') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="service_action">
+                        <input type="hidden" name="service_action" value="start">
+                        <button type="submit" class="btn btn-sm btn-outline-success" title="Start BIND9"><i class="fas fa-play"></i> Start</button>
+                    </form>
+                    {% endif %}
+                    {% endif %}
+
+                    {% if csf_port53_open == False %}
+                    <form method="POST" action="{{ url_for('dns.dns_manager', tab=active_tab, domain=active_zone.domain if active_zone else '') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="open_port53">
+                        <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-shield-alt me-1"></i>Open Port 53</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% else %}
+                <small class="text-muted">Authoritative DNS edits sync automatically with server configuration.</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Nameservers Card -->
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small text-uppercase fw-bold">Server Nameservers</span>
+                        {% if settings.nameservers_configured %}
+                            <span class="badge bg-info text-dark">Configured</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">Per-Domain Default</span>
+                        {% endif %}
+                    </div>
+                    {% if settings.nameservers_configured %}
+                    <div class="font-monospace small">
+                        <div><strong>NS1:</strong> {{ settings.ns1 }} <span class="text-muted">({{ settings.ns1_ip }})</span></div>
+                        <div><strong>NS2:</strong> {{ settings.ns2 }} <span class="text-muted">({{ settings.ns2_ip }})</span></div>
+                        {% if settings.ns3 %}<div><strong>NS3:</strong> {{ settings.ns3 }} <span class="text-muted">({{ settings.ns3_ip }})</span></div>{% endif %}
+                        {% if settings.ns4 %}<div><strong>NS4:</strong> {{ settings.ns4 }} <span class="text-muted">({{ settings.ns4_ip }})</span></div>{% endif %}
+                    </div>
+                    {% else %}
+                    <p class="small text-muted mb-1">
+                        Using per-domain nameservers (<code>ns1.&lt;domain&gt;</code>, <code>ns2.&lt;domain&gt;</code>).
+                    </p>
+                    {% endif %}
+                </div>
+                {% if is_admin %}
+                <div class="mt-2">
+                    <a href="{{ url_for('dns.dns_manager', tab='nameservers') }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-sitemap me-1"></i> Configure Root Nameservers
+                    </a>
+                </div>
+                {% else %}
+                <small class="text-muted">Point your domain's NS records at your registrar to the nameservers above.</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Server IP & Zone Summary Card -->
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex flex-column justify-content-between">
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted small text-uppercase fw-bold">DNS Environment</span>
+                        <span class="badge bg-primary">{{ zones|length }} Zone(s)</span>
+                    </div>
+                    <div class="small">
+                        <div><strong>Default IPv4:</strong> <code>{{ server_ip }}</code></div>
+                        {% if settings.default_ipv6 %}
+                        <div><strong>Default IPv6:</strong> <code>{{ settings.default_ipv6 }}</code></div>
+                        {% endif %}
+                        <div><strong>Default TTL:</strong> {{ settings.default_ttl }}s</div>
+                    </div>
+                </div>
+                <div class="small text-muted mt-2">
+                    Supported: {{ record_types|join(', ') }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if is_admin %}
+<!-- Streaming BIND9 Installer Progress -->
+<div id="bindInstallProgressContainer" class="card shadow-sm border-0 mb-4" style="display: none;">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span id="bindInstallProgressText" class="fw-semibold text-dark">Preparing BIND9 installation...</span>
+            <span id="bindInstallPercent" class="badge bg-primary">0%</span>
+        </div>
+        <div class="progress" style="height: 20px;">
+            <div id="bindInstallProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 5%;">5%</div>
+        </div>
+        <div id="bindInstallAlert" class="alert mt-3 mb-0" style="display: none;"></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Navigation Tabs -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'zones' %}active fw-bold{% endif %}"
+           href="{{ url_for('dns.dns_manager', tab='zones', domain=active_zone.domain if active_zone else '') }}">
+            <i class="fas fa-network-wired me-1"></i> DNS Zones &amp; Records
+        </a>
+    </li>
+    {% if is_admin %}
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'nameservers' %}active fw-bold{% endif %}"
+           href="{{ url_for('dns.dns_manager', tab='nameservers') }}">
+            <i class="fas fa-sitemap me-1"></i> Nameserver Management (Root)
+        </a>
+    </li>
+    {% endif %}
+</ul>
+
+{% if is_admin and active_tab == 'nameservers' %}
+<!-- ==================== TAB 2: ROOT NAMESERVER MANAGEMENT ==================== -->
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0"><i class="fas fa-sitemap text-primary me-2"></i>Global Nameserver Configuration</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Configure authoritative server nameservers (for example <code>ns1.yourdomain.com</code> &amp; <code>ns2.yourdomain.com</code>)
+                    and their glue IPv4 addresses. New zones inherit these nameservers automatically, and matching hosted domains
+                    receive automatic glue <code>A</code> records.
+                </p>
+
+                <form method="POST" action="{{ url_for('dns.dns_manager', tab='nameservers') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="save_nameservers">
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold">Primary Nameserver (NS1) <span class="text-danger">*</span></label>
+                            <input type="text" name="ns1" class="form-control" required
+                                   value="{{ settings.ns1 }}" placeholder="ns1.example.com">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">NS1 Glue IPv4</label>
+                            <input type="text" name="ns1_ip" class="form-control"
+                                   value="{{ settings.ns1_ip or server_ip }}" placeholder="{{ server_ip }}">
+                        </div>
+
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold">Secondary Nameserver (NS2) <span class="text-danger">*</span></label>
+                            <input type="text" name="ns2" class="form-control" required
+                                   value="{{ settings.ns2 }}" placeholder="ns2.example.com">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">NS2 Glue IPv4</label>
+                            <input type="text" name="ns2_ip" class="form-control"
+                                   value="{{ settings.ns2_ip or server_ip }}" placeholder="{{ server_ip }}">
+                        </div>
+
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold">Nameserver 3 (NS3 - Optional)</label>
+                            <input type="text" name="ns3" class="form-control"
+                                   value="{{ settings.ns3 }}" placeholder="ns3.example.com">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">NS3 Glue IPv4</label>
+                            <input type="text" name="ns3_ip" class="form-control"
+                                   value="{{ settings.ns3_ip }}" placeholder="Optional IPv4">
+                        </div>
+
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold">Nameserver 4 (NS4 - Optional)</label>
+                            <input type="text" name="ns4" class="form-control"
+                                   value="{{ settings.ns4 }}" placeholder="ns4.example.com">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">NS4 Glue IPv4</label>
+                            <input type="text" name="ns4_ip" class="form-control"
+                                   value="{{ settings.ns4_ip }}" placeholder="Optional IPv4">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Default Server IPv4</label>
+                            <input type="text" name="default_ip" class="form-control"
+                                   value="{{ settings.default_ip }}" placeholder="203.0.113.10">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Default Server IPv6 (Optional)</label>
+                            <input type="text" name="default_ipv6" class="form-control"
+                                   value="{{ settings.default_ipv6 }}" placeholder="2001:db8::1">
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold">Hostmaster Email (SOA RNAME)</label>
+                            <input type="email" name="hostmaster_email" class="form-control"
+                                   value="{{ settings.hostmaster_email }}" placeholder="hostmaster@example.com">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">Default Record TTL (seconds)</label>
+                            <input type="number" name="default_ttl" class="form-control" min="60" max="604800"
+                                   value="{{ settings.default_ttl }}" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="autoCreateZoneChk" name="auto_create_zone" value="1"
+                                   {% if settings.auto_create_zone %}checked{% endif %}>
+                            <label class="form-check-label" for="autoCreateZoneChk">
+                                Automatically initialize DNS zones when domains, shared users, Next.js apps, or Docker apps are added
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="syncGlueChk" name="sync_glue" value="1" checked>
+                            <label class="form-check-label" for="syncGlueChk">
+                                Sync glue <code>A</code> records inside matching hosted zones on this server
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="applyExistingChk" name="apply_to_existing" value="1">
+                            <label class="form-check-label fw-semibold text-primary" for="applyExistingChk">
+                                Also update apex <code>NS</code> records &amp; SOA MNAME across all existing zones immediately
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i> Save Nameserver Settings
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Bulk Sync Card -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0 fw-bold"><i class="fas fa-sync text-info me-2"></i>Zone Synchronization</h6>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted">
+                    Update all {{ zones|length }} existing DNS zone(s) to use the currently saved NS1–NS4 list, SOA primary NS,
+                    hostmaster email, and glue <code>A</code> records, then reload BIND9.
+                </p>
+                <form method="POST" action="{{ url_for('dns.dns_manager', tab='nameservers') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="apply_nameservers">
+                    <button type="submit" class="btn btn-outline-primary w-100"
+                            onclick="return confirm('Update NS records and SOA MNAME across all existing DNS zones?');">
+                        <i class="fas fa-broadcast-tower me-1"></i> Apply Nameservers to All Zones
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Registrar Glue Guide Card -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0 fw-bold"><i class="fas fa-book text-secondary me-2"></i>Registrar Glue Record Guide</h6>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted">
+                    Register these <strong>Child Nameservers / Host Records</strong> at your domain registrar so external resolvers can reach your BIND9 server:
+                </p>
+                <table class="table table-sm table-bordered small mb-2">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Hostname</th>
+                            <th>IPv4</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if settings.ns1 %}
+                        <tr><td><code>{{ settings.ns1 }}</code></td><td><code>{{ settings.ns1_ip }}</code></td></tr>
+                        {% endif %}
+                        {% if settings.ns2 %}
+                        <tr><td><code>{{ settings.ns2 }}</code></td><td><code>{{ settings.ns2_ip }}</code></td></tr>
+                        {% endif %}
+                        {% if settings.ns3 %}
+                        <tr><td><code>{{ settings.ns3 }}</code></td><td><code>{{ settings.ns3_ip }}</code></td></tr>
+                        {% endif %}
+                        {% if settings.ns4 %}
+                        <tr><td><code>{{ settings.ns4 }}</code></td><td><code>{{ settings.ns4_ip }}</code></td></tr>
+                        {% endif %}
+                        {% if not settings.ns1 %}
+                        <tr><td colspan="2" class="text-muted text-center">Save NS1 &amp; NS2 to view glue records.</td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+                <div class="small text-muted">
+                    Tip: Ensure UDP and TCP port <strong>53</strong> are allowed in both CSF Firewall and your cloud provider's network firewall.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<!-- ==================== TAB 1: DNS ZONES & RECORDS ==================== -->
+{% if uninitialized_domains %}
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2 shadow-sm mb-4">
+    <div>
+        <i class="fas fa-magic me-2"></i>
+        <strong>{{ uninitialized_domains|length }} hosted domain(s)</strong> do not have a DNS zone yet:
+        <span class="font-monospace small">{{ uninitialized_domains[:5]|join(', ') }}{% if uninitialized_domains|length > 5 %} (+{{ uninitialized_domains|length - 5 }} more){% endif %}</span>
+    </div>
+    <form method="POST" action="{{ url_for('dns.dns_manager') }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="init_all_zones">
+        <button type="submit" class="btn btn-sm btn-primary">
+            <i class="fas fa-bolt me-1"></i> Initialize All Missing Zones
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <!-- Left Sidebar: Zone List + Create Zone -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold"><i class="fas fa-list me-2 text-primary"></i>DNS Zones ({{ zones|length }})</h6>
+                <input type="text" id="zoneFilterInput" class="form-control form-control-sm" style="max-width: 140px;"
+                       placeholder="Filter zones..." oninput="filterZones()">
+            </div>
+            <div class="list-group list-group-flush" id="dnsZoneList" style="max-height: 360px; overflow-y: auto;">
+                {% for z in zones %}
+                <a href="{{ url_for('dns.dns_manager', domain=z.domain) }}"
+                   class="list-group-item list-group-item-action d-flex justify-content-between align-items-center zone-list-item {% if active_zone and active_zone.domain == z.domain %}active{% endif %}"
+                   data-domain="{{ z.domain }}">
+                    <div class="text-truncate me-2">
+                        <div class="fw-semibold text-truncate">{{ z.domain }}</div>
+                        <small class="{% if active_zone and active_zone.domain == z.domain %}text-white-50{% else %}text-muted{% endif %}">
+                            {{ z.record_count }} records
+                            {% if is_admin %} &middot; Owner: {{ z.owner_username }}{% endif %}
+                        </small>
+                    </div>
+                    {% if z.enabled %}
+                        <span class="badge {% if active_zone and active_zone.domain == z.domain %}bg-light text-dark{% else %}bg-success-subtle text-success border border-success{% endif %}">Active</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Paused</span>
+                    {% endif %}
+                </a>
+                {% else %}
+                <div class="p-3 text-center text-muted small">No DNS zones found yet.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Create / Initialize Zone Card -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0 fw-bold"><i class="fas fa-plus-circle text-primary me-2"></i>{% if is_admin %}Create DNS Zone{% else %}Initialize Domain DNS Zone{% endif %}</h6>
+            </div>
+            <div class="card-body">
+                {% if is_admin %}
+                <form method="POST" action="{{ url_for('dns.dns_manager') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="create_zone">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">Domain Name</label>
+                        <input type="text" name="domain" class="form-control form-control-sm" required placeholder="example.com">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">Zone Owner</label>
+                        <select name="owner" class="form-select form-select-sm">
+                            <option value="root">root (System Admin)</option>
+                            {% for u in hosting_users %}
+                            <option value="{{ u }}">{{ u }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Target IPv4 (Optional)</label>
+                        <input type="text" name="ip_override" class="form-control form-control-sm" placeholder="{{ server_ip }}">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="fas fa-plus me-1"></i> Create DNS Zone
+                    </button>
+                </form>
+                {% elif uninitialized_domains %}
+                <form method="POST" action="{{ url_for('dns.dns_manager') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="create_zone">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">Select Owned Domain</label>
+                        <select name="domain" class="form-select form-select-sm" required>
+                            {% for d in uninitialized_domains %}
+                            <option value="{{ d }}">{{ d }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Target IPv4 (Optional)</label>
+                        <input type="text" name="ip_override" class="form-control form-control-sm" placeholder="{{ server_ip }}">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="fas fa-plus me-1"></i> Initialize DNS Zone
+                    </button>
+                </form>
+                {% else %}
+                <p class="small text-muted mb-0">
+                    All your hosted domains already have active DNS zones. Add a new domain under
+                    <a href="{{ url_for('domains.domains') }}">Domains</a>, Next.js Apps, or Docker to manage DNS for it here.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Main Panel: Selected Zone Records -->
+    <div class="col-lg-8">
+        {% if active_zone %}
+        <!-- Zone Header & Controls -->
+        <div class="card shadow-sm border-0 mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <h4 class="mb-1 fw-bold">
+                            <i class="fas fa-globe text-primary me-2"></i>{{ active_zone.domain }}
+                            {% if active_zone.enabled %}
+                                <span class="badge bg-success fs-6 align-middle">Active</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark fs-6 align-middle">Paused</span>
+                            {% endif %}
+                        </h4>
+                        <div class="small text-muted">
+                            SOA Serial: <code>{{ active_zone.serial }}</code>
+                            &middot; Primary NS: <code>{{ active_zone.primary_ns }}</code>
+                            &middot; Owner: <strong>{{ active_zone.owner_username }}</strong>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="openAddRecordModal('A', '@', '{{ server_ip }}')">
+                            <i class="fas fa-plus me-1"></i> Add Record
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openZonePreview('{{ active_zone.domain }}')">
+                            <i class="fas fa-file-code me-1"></i> Zone File
+                        </button>
+                        <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="toggle_zone">
+                            <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                            <input type="hidden" name="enable" value="{{ '0' if active_zone.enabled else '1' }}">
+                            <button type="submit" class="btn btn-sm {% if active_zone.enabled %}btn-outline-warning text-dark{% else %}btn-outline-success{% endif %}">
+                                <i class="fas fa-power-off me-1"></i>{% if active_zone.enabled %}Pause{% else %}Enable{% endif %}
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="reset_zone">
+                            <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                            <button type="submit" class="btn btn-sm btn-outline-info"
+                                    onclick="return confirm('Reset ALL records in {{ active_zone.domain }} back to default template? Custom records will be replaced.');">
+                                <i class="fas fa-undo me-1"></i> Reset
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="delete_zone">
+                            <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    onclick="return confirm('Permanently delete DNS zone {{ active_zone.domain }} and all its records?');">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Quick Presets -->
+                <div class="mt-3 pt-2 border-top d-flex flex-wrap align-items-center gap-2">
+                    <span class="small text-muted fw-semibold me-1">Quick Add:</span>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('A', 'sub', '{{ server_ip }}')">+ Subdomain (A)</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('CNAME', 'www', '@')">+ CNAME (www)</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('MX', '@', 'mail.{{ active_zone.domain }}', 10)">+ MX Record</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('TXT', '@', 'v=spf1 a mx ip4:{{ server_ip }} ~all')">+ SPF (TXT)</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('TXT', '_dmarc', 'v=DMARC1; p=quarantine; rua=mailto:{{ settings.hostmaster_email }}')">+ DMARC</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-2"
+                            onclick="openAddRecordModal('CAA', '@', '0 issue &quot;letsencrypt.org&quot;')">+ CAA (Let's Encrypt)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Records Filter & Table -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex flex-wrap gap-1 align-items-center">
+                    <span class="fw-bold me-2">DNS Records ({{ records|length }})</span>
+                    <select id="recordTypeFilter" class="form-select form-select-sm" style="width: auto;" onchange="filterRecords()">
+                        <option value="ALL">All Types</option>
+                        {% for t in record_types %}
+                        <option value="{{ t }}">{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <input type="text" id="recordSearchInput" class="form-control form-control-sm" style="max-width: 220px;"
+                       placeholder="Search host or value..." oninput="filterRecords()">
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="recordsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">Type</th>
+                                <th>Host / Name</th>
+                                <th>TTL</th>
+                                <th>Value / Target</th>
+                                <th class="text-end pe-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rec in records %}
+                            <tr class="dns-record-row"
+                                data-type="{{ rec.type }}"
+                                data-search="{{ (rec.name ~ ' ' ~ rec.value ~ ' ' ~ rec.type)|lower }}">
+                                <td class="ps-3">
+                                    {% set badge_cls = {
+                                        'A': 'bg-primary',
+                                        'AAAA': 'bg-info text-dark',
+                                        'CNAME': 'bg-secondary',
+                                        'MX': 'bg-warning text-dark',
+                                        'TXT': 'bg-success',
+                                        'NS': 'bg-dark',
+                                        'SRV': 'bg-info text-dark',
+                                        'CAA': 'bg-danger'
+                                    }.get(rec.type, 'bg-secondary') %}
+                                    <span class="badge {{ badge_cls }}">{{ rec.type }}</span>
+                                </td>
+                                <td class="font-monospace fw-semibold">{{ rec.name }}</td>
+                                <td class="small text-muted">{{ rec.ttl }}s</td>
+                                <td class="font-monospace small text-break" style="max-width: 340px;">
+                                    {% if rec.type == 'MX' and rec.priority is not none %}
+                                        <span class="badge bg-light text-dark border me-1">Prio {{ rec.priority }}</span>
+                                    {% elif rec.type == 'SRV' %}
+                                        <span class="badge bg-light text-dark border me-1">P:{{ rec.priority }} W:{{ rec.weight }} Port:{{ rec.port }}</span>
+                                    {% endif %}
+                                    {{ rec.value }}
+                                </td>
+                                <td class="text-end pe-3 text-nowrap">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary"
+                                            title="Edit Record"
+                                            data-id="{{ rec.id }}"
+                                            data-type="{{ rec.type }}"
+                                            data-name="{{ rec.name }}"
+                                            data-value="{{ rec.value }}"
+                                            data-ttl="{{ rec.ttl }}"
+                                            data-priority="{{ rec.priority if rec.priority is not none else '' }}"
+                                            data-weight="{{ rec.weight if rec.weight is not none else '' }}"
+                                            data-port="{{ rec.port if rec.port is not none else '' }}"
+                                            onclick="openEditRecordModal(this)">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="delete_record">
+                                        <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                                        <input type="hidden" name="record_id" value="{{ rec.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Record"
+                                                onclick="return confirm('Delete this {{ rec.type }} record ({{ rec.name }})?');">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">No records in this zone. Click <strong>Add Record</strong> above.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card shadow-sm border-0">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-network-wired fa-3x text-muted mb-3"></i>
+                <h5>Select or Create a DNS Zone</h5>
+                <p class="text-muted small mb-0">
+                    Choose a domain from the left panel or initialize a new zone to manage A, AAAA, CNAME, MX, TXT, NS, SRV, and CAA records.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ==================== MODALS ==================== -->
+{% if active_zone %}
+<!-- Add Record Modal -->
+<div class="modal fade" id="addRecordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle text-primary me-2"></i>Add DNS Record ({{ active_zone.domain }})</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="add_record">
+                <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label class="form-label small fw-bold">Record Type</label>
+                            <select name="rtype" id="addRecType" class="form-select" onchange="toggleRecordFields('add')">
+                                {% for t in record_types %}
+                                <option value="{{ t }}">{{ t }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label small fw-bold">TTL (seconds)</label>
+                            <input type="number" name="ttl" id="addRecTtl" class="form-control" min="60" max="604800" value="{{ settings.default_ttl }}" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">Name / Host</label>
+                            <input type="text" name="name" id="addRecName" class="form-control font-monospace" required placeholder="@ or www or mail">
+                            <small class="text-muted">Use <code>@</code> for root domain (<code>{{ active_zone.domain }}</code>), or subdomain prefix like <code>www</code>.</small>
+                        </div>
+                        <div class="col-md-4" id="addPriorityWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Priority</label>
+                            <input type="number" name="priority" id="addRecPriority" class="form-control" min="0" max="65535" value="10">
+                        </div>
+                        <div class="col-md-4" id="addWeightWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Weight</label>
+                            <input type="number" name="weight" id="addRecWeight" class="form-control" min="0" max="65535" value="10">
+                        </div>
+                        <div class="col-md-4" id="addPortWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Port</label>
+                            <input type="number" name="port" id="addRecPort" class="form-control" min="1" max="65535" value="5060">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">Value / Target</label>
+                            <input type="text" name="value" id="addRecValue" class="form-control font-monospace" required placeholder="{{ server_ip }}">
+                            <small class="text-muted" id="addRecHint">IPv4 address (e.g. {{ server_ip }})</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Record</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Record Modal -->
+<div class="modal fade" id="editRecordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit text-primary me-2"></i>Edit DNS Record ({{ active_zone.domain }})</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('dns.dns_manager', domain=active_zone.domain) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="edit_record">
+                <input type="hidden" name="domain" value="{{ active_zone.domain }}">
+                <input type="hidden" name="record_id" id="editRecId">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label class="form-label small fw-bold">Record Type</label>
+                            <select name="rtype" id="editRecType" class="form-select" onchange="toggleRecordFields('edit')">
+                                {% for t in record_types %}
+                                <option value="{{ t }}">{{ t }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label small fw-bold">TTL (seconds)</label>
+                            <input type="number" name="ttl" id="editRecTtl" class="form-control" min="60" max="604800" required>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">Name / Host</label>
+                            <input type="text" name="name" id="editRecName" class="form-control font-monospace" required>
+                        </div>
+                        <div class="col-md-4" id="editPriorityWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Priority</label>
+                            <input type="number" name="priority" id="editRecPriority" class="form-control" min="0" max="65535">
+                        </div>
+                        <div class="col-md-4" id="editWeightWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Weight</label>
+                            <input type="number" name="weight" id="editRecWeight" class="form-control" min="0" max="65535">
+                        </div>
+                        <div class="col-md-4" id="editPortWrap" style="display: none;">
+                            <label class="form-label small fw-bold">Port</label>
+                            <input type="number" name="port" id="editRecPort" class="form-control" min="1" max="65535">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">Value / Target</label>
+                            <input type="text" name="value" id="editRecValue" class="form-control font-monospace" required>
+                            <small class="text-muted" id="editRecHint"></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Record</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- BIND9 Zone File Preview Modal -->
+<div class="modal fade" id="zonePreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-file-code text-primary me-2"></i>BIND9 Zone File (<span id="zonePreviewTitle">{{ active_zone.domain }}</span>)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="zonePreviewContent" class="bg-dark text-light p-3 rounded small mb-0" style="max-height: 450px; overflow: auto;">Loading...</pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyZonePreview()">
+                    <i class="fas fa-copy me-1"></i> Copy Zone File
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const DNS_HINTS = {
+    'A': 'IPv4 address (e.g. {{ server_ip }})',
+    'AAAA': 'IPv6 address (e.g. 2001:db8::1)',
+    'CNAME': 'Canonical hostname target or @ (e.g. @ or target.example.com)',
+    'MX': 'Mail server hostname (e.g. mail.example.com)',
+    'TXT': 'Text value (SPF, DKIM, DMARC, or verification token)',
+    'NS': 'Authoritative nameserver hostname (e.g. ns1.example.com)',
+    'SRV': 'Target hostname serving the protocol (requires Priority, Weight, Port)',
+    'CAA': 'CAA rule, e.g. 0 issue "letsencrypt.org"'
+};
+
+function toggleRecordFields(prefix) {
+    const typeEl = document.getElementById(prefix + 'RecType');
+    if (!typeEl) return;
+    const t = typeEl.value;
+    const prioWrap = document.getElementById(prefix + 'PriorityWrap');
+    const weightWrap = document.getElementById(prefix + 'WeightWrap');
+    const portWrap = document.getElementById(prefix + 'PortWrap');
+    const hintEl = document.getElementById(prefix + 'RecHint');
+
+    if (prioWrap) prioWrap.style.display = (t === 'MX' || t === 'SRV') ? 'block' : 'none';
+    if (weightWrap) weightWrap.style.display = (t === 'SRV') ? 'block' : 'none';
+    if (portWrap) portWrap.style.display = (t === 'SRV') ? 'block' : 'none';
+    if (hintEl) hintEl.textContent = DNS_HINTS[t] || '';
+}
+
+function openAddRecordModal(rtype, name, value, priority) {
+    document.getElementById('addRecType').value = rtype || 'A';
+    document.getElementById('addRecName').value = name || '';
+    document.getElementById('addRecValue').value = value || '';
+    if (priority !== undefined && priority !== null) {
+        document.getElementById('addRecPriority').value = priority;
+    }
+    toggleRecordFields('add');
+    const modal = new bootstrap.Modal(document.getElementById('addRecordModal'));
+    modal.show();
+}
+
+function openEditRecordModal(btn) {
+    document.getElementById('editRecId').value = btn.dataset.id || '';
+    document.getElementById('editRecType').value = btn.dataset.type || 'A';
+    document.getElementById('editRecName').value = btn.dataset.name || '';
+    document.getElementById('editRecValue').value = btn.dataset.value || '';
+    document.getElementById('editRecTtl').value = btn.dataset.ttl || '14400';
+    document.getElementById('editRecPriority').value = btn.dataset.priority || '10';
+    document.getElementById('editRecWeight').value = btn.dataset.weight || '10';
+    document.getElementById('editRecPort').value = btn.dataset.port || '5060';
+    toggleRecordFields('edit');
+    const modal = new bootstrap.Modal(document.getElementById('editRecordModal'));
+    modal.show();
+}
+
+function filterZones() {
+    const q = (document.getElementById('zoneFilterInput')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.zone-list-item').forEach(el => {
+        const dom = (el.dataset.domain || '').toLowerCase();
+        el.style.display = (!q || dom.includes(q)) ? '' : 'none';
+    });
+}
+
+function filterRecords() {
+    const t = document.getElementById('recordTypeFilter')?.value || 'ALL';
+    const q = (document.getElementById('recordSearchInput')?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.dns-record-row').forEach(row => {
+        const matchType = (t === 'ALL' || row.dataset.type === t);
+        const matchSearch = (!q || (row.dataset.search || '').includes(q));
+        row.style.display = (matchType && matchSearch) ? '' : 'none';
+    });
+}
+
+async function openZonePreview(domain) {
+    const pre = document.getElementById('zonePreviewContent');
+    const title = document.getElementById('zonePreviewTitle');
+    if (title) title.textContent = domain;
+    if (pre) pre.textContent = 'Loading rendered BIND9 zone file...';
+    const modal = new bootstrap.Modal(document.getElementById('zonePreviewModal'));
+    modal.show();
+    try {
+        const resp = await fetch('/api/dns/zone-file/' + encodeURIComponent(domain));
+        const data = await resp.json();
+        if (data.success) {
+            pre.textContent = data.content;
+        } else {
+            pre.textContent = 'Error: ' + (data.message || 'Unable to load zone preview.');
+        }
+    } catch (err) {
+        pre.textContent = 'Network error loading zone file: ' + err;
+    }
+}
+
+function copyZonePreview() {
+    const text = document.getElementById('zonePreviewContent')?.textContent || '';
+    if (navigator.clipboard && text) {
+        navigator.clipboard.writeText(text);
+    }
+}
+
+async function startBindInstall() {
+    const btn = document.getElementById('installBindBtn');
+    const container = document.getElementById('bindInstallProgressContainer');
+    const bar = document.getElementById('bindInstallProgressBar');
+    const text = document.getElementById('bindInstallProgressText');
+    const pct = document.getElementById('bindInstallPercent');
+    const alertBox = document.getElementById('bindInstallAlert');
+    const csrfToken = document.getElementById('bindInstallCsrf')?.value || '';
+
+    if (btn) btn.disabled = true;
+    if (container) container.style.display = 'block';
+    if (alertBox) {
+        alertBox.style.display = 'none';
+        alertBox.className = 'alert mt-3 mb-0';
+    }
+
+    const formData = new FormData();
+    formData.append('csrf_token', csrfToken);
+    formData.append('action', 'install_bind9');
+
+    try {
+        const response = await fetch("{{ url_for('dns.dns_manager') }}", {
+            method: 'POST',
+            body: formData
+        });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const ev = JSON.parse(line);
+                    const p = Math.max(0, Math.min(100, Number(ev.progress || 0)));
+                    bar.style.width = p + '%';
+                    bar.textContent = p + '%';
+                    pct.textContent = p + '%';
+                    text.textContent = ev.message || 'Working...';
+                    if (ev.error) {
+                        bar.classList.remove('bg-primary', 'progress-bar-animated');
+                        bar.classList.add('bg-danger');
+                        alertBox.className = 'alert alert-danger mt-3 mb-0';
+                        alertBox.textContent = ev.message || 'Installation failed.';
+                        alertBox.style.display = 'block';
+                        if (btn) btn.disabled = false;
+                    } else if (ev.success) {
+                        bar.classList.remove('bg-primary', 'progress-bar-animated');
+                        bar.classList.add('bg-success');
+                        alertBox.className = 'alert alert-success mt-3 mb-0';
+                        alertBox.textContent = ev.message || 'BIND9 installed successfully! Reloading...';
+                        alertBox.style.display = 'block';
+                        setTimeout(() => window.location.reload(), 1200);
+                    }
+                } catch (_) {}
+            }
+        }
+    } catch (err) {
+        alertBox.className = 'alert alert-danger mt-3 mb-0';
+        alertBox.textContent = 'Installation request error: ' + err;
+        alertBox.style.display = 'block';
+        if (btn) btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => toggleRecordFields('add'));
+</script>
+{% endblock %}

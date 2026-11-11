@@ -70,6 +70,46 @@ def _init_db(conn):
             port INTEGER UNIQUE
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dns_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dns_zones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT UNIQUE NOT NULL,
+            owner_username TEXT NOT NULL DEFAULT 'root',
+            serial INTEGER NOT NULL,
+            refresh INTEGER DEFAULT 3600,
+            retry INTEGER DEFAULT 1800,
+            expire INTEGER DEFAULT 1209600,
+            minimum_ttl INTEGER DEFAULT 3600,
+            primary_ns TEXT,
+            hostmaster_email TEXT,
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dns_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            zone_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            value TEXT NOT NULL,
+            ttl INTEGER DEFAULT 14400,
+            priority INTEGER,
+            weight INTEGER,
+            port INTEGER,
+            FOREIGN KEY(zone_id) REFERENCES dns_zones(id) ON DELETE CASCADE
+        )
+    ''')
         
     conn.commit()
 

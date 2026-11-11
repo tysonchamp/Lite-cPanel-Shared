@@ -882,6 +882,7 @@ def cleanup_user_system_resources(username, main_domain=None, resources=None):
         "all_domains": all_domains,
         "domains": [],
         "ssl_certs": [],
+        "dns_zones": [],
         "pm2_processes": [],
         "docker_compose_stacks": [],
         "docker_containers": [],
@@ -915,6 +916,32 @@ def cleanup_user_system_resources(username, main_domain=None, resources=None):
     except Exception as exc:
         logging.exception("Domain/SSL cleanup failed for user %s", username)
         report["warnings"].append(f"Domain/SSL cleanup error: {exc}")
+
+    # 3b. Remove BIND9 DNS zones owned by the user or tied to their domains
+    try:
+        import sqlite3
+        import dns_mgr
+        dns_domains = list(all_domains)
+        try:
+            conn = dns_mgr._dns_conn()
+            rows = conn.execute(
+                "SELECT domain FROM dns_zones WHERE owner_username = ?",
+                (username,),
+            ).fetchall()
+            conn.close()
+            for row in rows:
+                dom = row["domain"] if hasattr(row, "keys") else row[0]
+                if dom and dom not in dns_domains:
+                    dns_domains.append(dom)
+        except sqlite3.OperationalError as exc:
+            logging.warning("DNS zone lookup skipped for %s: %s", username, exc)
+        if dns_domains:
+            removed_zones, dns_warnings = dns_mgr.delete_zones_for_domains(dns_domains)
+            report["dns_zones"] = removed_zones
+            report["warnings"].extend(dns_warnings)
+    except Exception as exc:
+        logging.exception("DNS zone cleanup failed for user %s", username)
+        report["warnings"].append(f"DNS cleanup error: {exc}")
 
     # 4. Drop MySQL/MariaDB databases and orphaned DB users
     try:
@@ -962,6 +989,8 @@ def format_cleanup_summary(username, report):
         parts.append(f"{len(report['domains'])} domain(s)")
     if report.get("ssl_certs"):
         parts.append(f"{len(report['ssl_certs'])} SSL cert(s)")
+    if report.get("dns_zones"):
+        parts.append(f"{len(report['dns_zones'])} DNS zone(s)")
     if report.get("ftp_accounts"):
         parts.append(f"{len(report['ftp_accounts'])} FTP/SFTP account(s)")
     if report.get("mysql_databases"):

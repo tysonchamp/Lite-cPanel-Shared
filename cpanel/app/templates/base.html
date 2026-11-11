@@ -95,6 +95,7 @@
         <a href="{{ url_for('dashboard.dashboard') }}"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
         <a href="{{ url_for('dashboard.traffic_monitor') }}"><i class="fas fa-chart-line text-success"></i> Traffic Monitor</a>
         <a href="{{ url_for('domains.domains') }}"><i class="fas fa-globe"></i> Domains</a>
+        <a href="{{ url_for('dns.dns_manager') }}"><i class="fas fa-network-wired text-info"></i> DNS Manager</a>
         <a href="{{ url_for('php.php_manager') }}"><i class="fab fa-php text-info"></i> Multi-PHP Manager</a>
         <a href="{{ url_for('nextjs.nextjs') }}"><i class="fab fa-react text-info"></i> Next.js Apps</a>
         <a href="{{ url_for('nextjs.process_manager') }}"><i class="fas fa-tasks text-warning"></i> Process Manager</a>
@@ -117,6 +118,7 @@
         <div style="border-top: 1px solid rgba(255,255,255,0.05); margin: 15px 0;"></div>
         <a href="{{ url_for('admin.admin_plans') }}"><i class="fas fa-list-alt text-warning"></i> Hosting Plans</a>
         <a href="{{ url_for('admin.admin_users') }}"><i class="fas fa-users text-primary"></i> Manage Users</a>
+        <a href="{{ url_for('dns.dns_manager', tab='nameservers') }}"><i class="fas fa-sitemap text-info"></i> Nameservers (NS)</a>
         {% endif %}
         <a href="{{ url_for('auth.logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a>
     </div>

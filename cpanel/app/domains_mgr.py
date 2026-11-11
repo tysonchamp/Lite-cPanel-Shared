@@ -157,7 +157,15 @@ def add_virtual_host(domain, role='admin', username=None, is_main=False):
                 if not is_main:
                     add_user_resource(username, 'domains', domain)
                 subprocess.run(['chown', '-R', f"{username}:{username}", doc_root], capture_output=True)
-                
+
+            try:
+                import dns_mgr
+                dns_owner = username if (role == 'user' and username) else 'root'
+                dns_mgr.ensure_zone_for_domain(domain, owner=dns_owner)
+            except Exception as exc:
+                import logging
+                logging.warning("DNS auto-zone hook failed for %s: %s", domain, exc)
+
             return True, "Virtual host created successfully."
         except subprocess.CalledProcessError as e:
             err_msg = e.stderr.strip() if e.stderr else e.stdout.strip()
@@ -305,10 +313,21 @@ def delete_virtual_host(domain, role='admin', username=None):
     except Exception as exc:
         warnings.append(f"Failed removing directory {doc_root}: {exc}")
 
+    dns_deleted = False
+    try:
+        import dns_mgr
+        ok_dns, msg_dns = dns_mgr.delete_dns_zone(domain, reload_bind=True)
+        if ok_dns:
+            dns_deleted = True
+        elif msg_dns and "not found" not in msg_dns.lower():
+            warnings.append(msg_dns)
+    except Exception as exc:
+        warnings.append(f"Failed removing DNS zone for {domain}: {exc}")
+
     if owner:
         remove_user_resource(owner, 'domains', domain)
 
-    if not (servers_deleted or ssl_deleted or dir_deleted or owner):
+    if not (servers_deleted or ssl_deleted or dir_deleted or dns_deleted or owner):
         if warnings:
             return False, f"Errors deleting domain: {'; '.join(warnings)}"
         return False, "Configuration not found for any web server."

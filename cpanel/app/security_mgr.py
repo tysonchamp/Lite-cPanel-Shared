@@ -46,7 +46,8 @@ ALLOWED_DIRS = [
     '/var/www/html/',
     '/etc/modsecurity/',
     '/etc/mysql/',
-    '/etc/pure-ftpd/'
+    '/etc/pure-ftpd/',
+    '/etc/bind/'
 ]
 
 def is_safe_path(path):
