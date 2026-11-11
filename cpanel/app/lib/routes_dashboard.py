@@ -410,14 +410,22 @@ def api_sysinfo():
 @login_required
 def api_services():
     from modsec_mgr import get_modsec_status
-    
-    res = subprocess.run("systemctl list-units --type=service --all | grep -m1 -oE 'php[0-9.]+-fpm\\.service'", shell=True, capture_output=True, text=True)
-    php_fpm_id = res.stdout.strip().replace('.service', '') or 'php-fpm'
+    from php_mgr import get_installed_php_versions
+
+    php_fpm_entries = [
+        {'id': v['fpm_service'], 'name': f"PHP {v['version']} FPM"}
+        for v in get_installed_php_versions()
+        if v.get('has_fpm')
+    ]
+    if not php_fpm_entries:
+        res = subprocess.run("systemctl list-units --type=service --all | grep -m1 -oE 'php[0-9.]+-fpm\\.service'", shell=True, capture_output=True, text=True)
+        php_fpm_id = res.stdout.strip().replace('.service', '') or 'php-fpm'
+        php_fpm_entries = [{'id': php_fpm_id, 'name': 'PHP-FPM'}]
 
     services = [
         {'id': 'apache2', 'name': 'Apache Engine'},
         {'id': 'nginx', 'name': 'Nginx Engine'},
-        {'id': php_fpm_id, 'name': 'PHP-FPM'}, 
+        *php_fpm_entries,
         {'id': 'mariadb', 'name': 'MySQL / MariaDB'},
         {'id': 'mongod', 'name': 'MongoDB'},
         {'id': 'mongo-express', 'name': 'Mongo Express'},
@@ -479,7 +487,8 @@ def api_service_restart():
         subprocess.Popen(['bash', '-c', 'sleep 1 && systemctl restart cpanel.service'])
         return jsonify({'success': True, 'message': 'Process initiated in background...'})
 
-    if service_id not in ['apache2', 'nginx', 'mariadb', 'mysql', 'csf'] and not service_id.startswith('php'):
+    is_php_fpm = (service_id == 'php-fpm' or bool(re.fullmatch(r'php\d+\.\d+-fpm', service_id)))
+    if service_id not in ['apache2', 'nginx', 'mariadb', 'mysql', 'csf'] and not is_php_fpm:
         return jsonify({'success': False, 'message': 'Forbidden infrastructure target.'})
 
     res = subprocess.run(['systemctl', 'restart', service_id], capture_output=True, text=True)

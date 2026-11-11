@@ -1,0 +1,639 @@
+{% extends 'base.html' %}
+
+{% block header_title %}Multi-PHP Manager{% endblock %}
+
+{% block content %}
+<!-- Top Overview Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center justify-content-between">
+                <div>
+                    <small class="text-uppercase text-muted fw-bold d-block" style="font-size: 0.72rem;">System Default PHP</small>
+                    <h4 class="mb-0 fw-bold mt-1">
+                        {% if default_php %}
+                            <span class="text-primary">PHP {{ default_php }}</span>
+                        {% else %}
+                            <span class="text-muted">Not Detected</span>
+                        {% endif %}
+                    </h4>
+                </div>
+                <div class="rounded-circle bg-primary bg-opacity-10 p-3 text-primary">
+                    <i class="fab fa-php fa-lg"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center justify-content-between">
+                <div>
+                    <small class="text-uppercase text-muted fw-bold d-block" style="font-size: 0.72rem;">Available PHP-FPM Engines</small>
+                    <div class="mt-2 d-flex flex-wrap gap-1">
+                        {% for v in fpm_versions %}
+                            <span class="badge {% if v.fpm_status == 'active' %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                                PHP {{ v.version }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted small">None installed</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="rounded-circle bg-success bg-opacity-10 p-3 text-success">
+                    <i class="fas fa-server fa-lg"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-body d-flex align-items-center justify-content-between">
+                <div>
+                    <small class="text-uppercase text-muted fw-bold d-block" style="font-size: 0.72rem;">Web Stack Integration</small>
+                    <h5 class="mb-0 fw-bold mt-1 text-capitalize">{{ webserver_type }}</h5>
+                    <small class="text-muted">{% if webserver_type == 'hybrid' %}Nginx + Apache (FPM){% elif webserver_type == 'nginx' %}Nginx FastCGI (FPM){% elif webserver_type == 'apache' %}Apache proxy_fcgi (FPM){% else %}Auto-detected{% endif %}</small>
+                </div>
+                <div class="rounded-circle bg-info bg-opacity-10 p-3 text-info">
+                    <i class="fas fa-layer-group fa-lg"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Navigation Tabs -->
+<ul class="nav nav-tabs mb-4" id="phpTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold {% if active_tab == 'domains' %}active{% endif %}" id="domains-tab" data-bs-toggle="tab" data-bs-target="#tab-domains" type="button" role="tab">
+            <i class="fas fa-globe me-2"></i>Domain PHP Versions
+        </button>
+    </li>
+    {% if is_admin %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold {% if active_tab == 'versions' %}active{% endif %}" id="versions-tab" data-bs-toggle="tab" data-bs-target="#tab-versions" type="button" role="tab">
+            <i class="fas fa-cubes me-2"></i>PHP Versions &amp; Extensions
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold {% if active_tab == 'ini' %}active{% endif %}" id="ini-tab" data-bs-toggle="tab" data-bs-target="#tab-ini" type="button" role="tab">
+            <i class="fas fa-sliders-h me-2"></i>PHP INI Editor
+        </button>
+    </li>
+    {% endif %}
+</ul>
+
+<div class="tab-content" id="phpTabsContent">
+    <!-- Tab 1: Domain PHP Versions -->
+    <div class="tab-pane fade {% if active_tab == 'domains' %}show active{% endif %}" id="tab-domains" role="tabpanel">
+        {% if not fpm_versions %}
+        <div class="alert alert-warning d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>No PHP-FPM version detected.</strong>
+                {% if is_admin %}
+                    Install a PHP version with FPM in the <em>PHP Versions &amp; Extensions</em> tab to enable per-domain PHP version switching.
+                {% else %}
+                    Only the root user can install PHP versions. Please contact your server administrator.
+                {% endif %}
+            </div>
+            {% if is_admin %}
+            <button type="button" class="btn btn-sm btn-warning fw-bold" onclick="switchPhpTab('versions-tab')">
+                <i class="fas fa-download me-1"></i> Install PHP
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Bulk Apply Card -->
+        {% if domains and fpm_versions %}
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body py-3">
+                <form id="bulkPhpForm" method="POST" action="{{ url_for('php.php_manager') }}" class="row g-2 align-items-center">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="bulk_set_domain_php">
+                    <div class="col-md-auto">
+                        <span class="fw-semibold small text-muted text-uppercase"><i class="fas fa-check-double me-1"></i> Bulk Update Selected Domains:</span>
+                    </div>
+                    <div class="col-md-4">
+                        <select name="php_version" class="form-select form-select-sm" required>
+                            <option value="inherit">Inherit System Default{% if default_php %} (PHP {{ default_php }}){% endif %}</option>
+                            {% for v in fpm_versions %}
+                            <option value="{{ v.version }}">PHP {{ v.version }}{% if v.is_default %} (Default){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-auto">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <i class="fas fa-check me-1"></i> Apply to Selected
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Per-Domain PHP Table -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Domain PHP Configuration</h5>
+                <small class="text-muted">{{ domains|length }} domain(s)</small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th style="width: 40px;" class="ps-3">
+                                    {% if domains and fpm_versions %}
+                                    <input type="checkbox" class="form-check-input" id="selectAllDomains" title="Select All">
+                                    {% endif %}
+                                </th>
+                                <th>Domain</th>
+                                <th>Web Server</th>
+                                <th>Current PHP Version</th>
+                                <th style="min-width: 280px;">Switch PHP Version</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in domains %}
+                            <tr>
+                                <td class="ps-3">
+                                    {% if fpm_versions %}
+                                    <input type="checkbox" class="form-check-input domain-checkbox" name="domains" value="{{ d.domain }}" form="bulkPhpForm">
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="fw-bold">{{ d.domain }}</div>
+                                    <small class="text-muted font-monospace">{{ d.doc_root }}</small>
+                                </td>
+                                <td>
+                                    {% for srv in d.servers %}
+                                        <span class="badge bg-secondary">{{ srv }}</span>
+                                    {% endfor %}
+                                    {% if d.has_ssl %}
+                                        <span class="badge bg-success"><i class="fas fa-lock"></i> SSL</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if d.is_inherited %}
+                                        <span class="badge bg-info text-dark">
+                                            <i class="fas fa-link me-1"></i> Inherit ({{ d.php_version }})
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-primary">
+                                            <i class="fab fa-php me-1"></i> PHP {{ d.php_version }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if fpm_versions %}
+                                    <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-flex gap-2 align-items-center mb-0">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="set_domain_php">
+                                        <input type="hidden" name="domain" value="{{ d.domain }}">
+                                        <select name="php_version" class="form-select form-select-sm" style="max-width: 220px;">
+                                            <option value="inherit" {% if d.is_inherited %}selected{% endif %}>
+                                                System Default{% if default_php %} ({{ default_php }}){% endif %}
+                                            </option>
+                                            {% for v in fpm_versions %}
+                                            <option value="{{ v.version }}" {% if not d.is_inherited and d.php_version == v.version %}selected{% endif %}>
+                                                PHP {{ v.version }}{% if v.is_default %} (Default){% endif %}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">
+                                            <i class="fas fa-sync-alt me-1"></i> Apply
+                                        </button>
+                                    </form>
+                                    {% else %}
+                                    <span class="text-muted small">PHP-FPM required</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    <i class="fas fa-globe fa-2x mb-2 opacity-25 d-block"></i>
+                                    No PHP virtual hosts found. Create a domain first in the Domains section.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if is_admin %}
+    <!-- Tab 2: PHP Versions & Extensions (Admin/Root Only) -->
+    <div class="tab-pane fade {% if active_tab == 'versions' %}show active{% endif %}" id="tab-versions" role="tabpanel">
+        <!-- Install New PHP Version -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-download me-2 text-primary"></i>Install PHP Version</h5>
+                <span class="badge bg-light text-dark border">Root Only</span>
+            </div>
+            <div class="card-body">
+                {% if installable_versions %}
+                <form id="installPhpForm" method="POST" action="{{ url_for('php.php_manager') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="install_php">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" for="installPhpVersion">PHP Version</label>
+                            <select class="form-select" id="installPhpVersion" name="version" required>
+                                <option value="" disabled selected>Choose version to install...</option>
+                                {% for ver in installable_versions %}
+                                <option value="{{ ver }}">PHP {{ ver }} (FPM + CLI + Core Extensions)</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Core &amp; Optional Extensions</label>
+                            <div class="border rounded p-2 bg-light d-flex flex-wrap gap-3" style="max-height: 110px; overflow-y: auto;">
+                                {% for ext in installable_extensions %}
+                                <div class="form-check form-check-inline m-0">
+                                    <input class="form-check-input" type="checkbox" name="extensions" value="{{ ext }}" id="ext_{{ ext }}"
+                                        {% if ext in core_extensions %}checked{% endif %}>
+                                    <label class="form-check-label small" for="ext_{{ ext }}">{{ ext }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" id="installPhpBtn" class="btn btn-primary w-100">
+                                <i class="fas fa-download me-1"></i> Install PHP
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Streaming Install Progress -->
+                <div id="phpProgressContainer" class="mt-4" style="display: none;">
+                    <h6 id="phpProgressText" class="mb-2 fw-bold">Preparing installation...</h6>
+                    <div class="progress" style="height: 22px;">
+                        <div id="phpProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+                <div id="phpProgressAlert" class="alert mt-3" style="display: none;"></div>
+                {% else %}
+                <p class="text-muted mb-0"><i class="fas fa-check-circle text-success me-1"></i> All supported PHP versions ({{ supported_versions|join(', ') }}) already have PHP-FPM installed.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Installed PHP Versions Table -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">Installed PHP Versions</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light">
+                            <tr>
+                                <th>Version</th>
+                                <th>FPM Service Status</th>
+                                <th>FPM Socket</th>
+                                <th class="text-end pe-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in installed_versions %}
+                            <tr>
+                                <td class="fw-bold">
+                                    <i class="fab fa-php text-primary me-2"></i>PHP {{ v.version }}
+                                    {% if v.is_default %}
+                                        <span class="badge bg-primary ms-1">System Default</span>
+                                    {% endif %}
+                                    {% if not v.has_fpm %}
+                                        <span class="badge bg-warning text-dark ms-1">CLI/ModPHP Only</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if v.fpm_status == 'active' %}
+                                        <span class="badge bg-success"><i class="fas fa-circle me-1"></i> Active</span>
+                                    {% elif v.fpm_status == 'not_installed' %}
+                                        <span class="badge bg-secondary">FPM Not Installed</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">{{ v.fpm_status|title }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="font-monospace small text-muted">
+                                    {{ v.socket_path or '-' }}
+                                </td>
+                                <td class="text-end pe-3">
+                                    <div class="d-inline-flex flex-wrap gap-1 justify-content-end">
+                                        {% if v.has_fpm %}
+                                            {% if v.fpm_status == 'active' %}
+                                            <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="service_action">
+                                                <input type="hidden" name="version" value="{{ v.version }}">
+                                                <input type="hidden" name="svc_action" value="restart">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Restart FPM"><i class="fas fa-sync-alt"></i></button>
+                                            </form>
+                                            <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="service_action">
+                                                <input type="hidden" name="version" value="{{ v.version }}">
+                                                <input type="hidden" name="svc_action" value="stop">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Stop FPM"><i class="fas fa-stop"></i></button>
+                                            </form>
+                                            {% else %}
+                                            <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-inline">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                                <input type="hidden" name="action" value="service_action">
+                                                <input type="hidden" name="version" value="{{ v.version }}">
+                                                <input type="hidden" name="svc_action" value="start">
+                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Start FPM"><i class="fas fa-play"></i></button>
+                                            </form>
+                                            {% endif %}
+                                        {% endif %}
+
+                                        {% if not v.is_default and v.has_cli %}
+                                        <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-inline">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="set_default_php">
+                                            <input type="hidden" name="version" value="{{ v.version }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-star me-1"></i> Set Default
+                                            </button>
+                                        </form>
+                                        {% endif %}
+
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="openExtensionsModal('{{ v.version }}')">
+                                            <i class="fas fa-puzzle-piece me-1"></i> Extensions
+                                        </button>
+
+                                        {% if v.ini_files %}
+                                        <a href="{{ url_for('php.php_manager', tab='ini', ini_ver=v.version) }}" class="btn btn-sm btn-outline-secondary">
+                                            <i class="fas fa-sliders-h me-1"></i> INI
+                                        </a>
+                                        {% endif %}
+
+                                        {% if not v.is_default %}
+                                        <form method="POST" action="{{ url_for('php.php_manager') }}" class="d-inline"
+                                              onsubmit="return confirm('Uninstall PHP {{ v.version }} and all its packages?');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="uninstall_php">
+                                            <input type="hidden" name="version" value="{{ v.version }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Uninstall PHP {{ v.version }}">
+                                                <i class="fas fa-trash-alt"></i>
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">No PHP installations found on this system.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab 3: PHP INI Editor (Admin/Root Only) -->
+    <div class="tab-pane fade {% if active_tab == 'ini' %}show active{% endif %}" id="tab-ini" role="tabpanel">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <h5 class="mb-0"><i class="fas fa-sliders-h me-2 text-primary"></i>PHP INI Configuration</h5>
+                {% if installed_versions %}
+                <form method="GET" action="{{ url_for('php.php_manager') }}" class="d-flex gap-2 align-items-center mb-0">
+                    <input type="hidden" name="tab" value="ini">
+                    <select name="ini_ver" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for v in installed_versions %}
+                        <option value="{{ v.version }}" {% if v.version == selected_ini_ver %}selected{% endif %}>PHP {{ v.version }}</option>
+                        {% endfor %}
+                    </select>
+                    <select name="ini_sapi" class="form-select form-select-sm" onchange="this.form.submit()">
+                        {% for v in installed_versions if v.version == selected_ini_ver %}
+                            {% for sapi in v.ini_files.keys() %}
+                            <option value="{{ sapi }}" {% if sapi == selected_ini_sapi %}selected{% endif %}>{{ sapi|upper }}</option>
+                            {% endfor %}
+                        {% endfor %}
+                    </select>
+                    {% if ini_path %}
+                    <a href="{{ url_for('system.edit_config', filepath=ini_path) }}" class="btn btn-sm btn-outline-secondary text-nowrap">
+                        <i class="fas fa-code me-1"></i> Raw php.ini
+                    </a>
+                    {% endif %}
+                </form>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if ini_path %}
+                <p class="small text-muted mb-3">Editing: <code>{{ ini_path }}</code></p>
+                <form method="POST" action="{{ url_for('php.php_manager') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="save_ini">
+                    <input type="hidden" name="version" value="{{ selected_ini_ver }}">
+                    <input type="hidden" name="sapi" value="{{ selected_ini_sapi }}">
+
+                    <div class="row g-3">
+                        {% for d in ini_directives %}
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold" for="ini_{{ d.key }}">{{ d.label }} <code class="small">({{ d.key }})</code></label>
+                            {% if d.options %}
+                            <select class="form-select" id="ini_{{ d.key }}" name="{{ d.key }}">
+                                {% for opt in d.options %}
+                                <option value="{{ opt }}" {% if ini_values.get(d.key, '')|lower == opt|lower %}selected{% endif %}>{{ opt }}</option>
+                                {% endfor %}
+                            </select>
+                            {% else %}
+                            <input type="text" class="form-control" id="ini_{{ d.key }}" name="{{ d.key }}"
+                                   value="{{ ini_values.get(d.key, '') }}" placeholder="{{ d.placeholder }}">
+                            {% endif %}
+                            <div class="form-text">{{ d.help }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mt-4">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i> Save &amp; Reload PHP {{ selected_ini_ver }}
+                        </button>
+                    </div>
+                </form>
+                {% else %}
+                <p class="text-muted mb-0">No <code>php.ini</code> file found for the selected PHP version.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Extensions Modal (Admin/Root Only) -->
+    <div class="modal fade" id="extensionsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="extensionsModalTitle">PHP Extensions</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url_for('php.php_manager') }}" class="row g-2 align-items-end mb-4 pb-3 border-bottom">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="install_extension">
+                        <input type="hidden" name="version" id="extModalVersion" value="">
+                        <div class="col-md-8">
+                            <label class="form-label fw-semibold small">Install Additional Extension</label>
+                            <select class="form-select form-select-sm" name="extension" required>
+                                {% for ext in installable_extensions %}
+                                <option value="{{ ext }}">{{ ext }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-sm btn-primary w-100">
+                                <i class="fas fa-plus me-1"></i> Install Extension
+                            </button>
+                        </div>
+                    </form>
+                    <h6 class="small text-uppercase text-muted fw-bold mb-2">Loaded Modules</h6>
+                    <div id="extModalModules" class="d-flex flex-wrap gap-1">
+                        <span class="text-muted small">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const selectAllCb = document.getElementById('selectAllDomains');
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function() {
+            document.querySelectorAll('.domain-checkbox').forEach(cb => {
+                cb.checked = selectAllCb.checked;
+            });
+        });
+    }
+
+    function switchPhpTab(tabBtnId) {
+        const tabBtn = document.getElementById(tabBtnId);
+        if (tabBtn && window.bootstrap) {
+            new bootstrap.Tab(tabBtn).show();
+        }
+    }
+
+    {% if is_admin %}
+    const installPhpForm = document.getElementById('installPhpForm');
+    if (installPhpForm) {
+        installPhpForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const btn = document.getElementById('installPhpBtn');
+            const container = document.getElementById('phpProgressContainer');
+            const text = document.getElementById('phpProgressText');
+            const bar = document.getElementById('phpProgressBar');
+            const alertDiv = document.getElementById('phpProgressAlert');
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Installing...';
+            container.style.display = 'block';
+            alertDiv.style.display = 'none';
+            bar.style.width = '5%';
+            bar.innerText = '5%';
+            text.innerText = 'Starting PHP installation...';
+            bar.classList.remove('bg-danger', 'bg-success');
+            bar.classList.add('progress-bar-animated');
+
+            try {
+                const formData = new FormData(installPhpForm);
+                const response = await fetch("{{ url_for('php.php_manager') }}", {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok && response.headers.get('content-type')?.indexOf('application/x-ndjson') === -1) {
+                    throw new Error("Server returned HTTP " + response.status);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const data = JSON.parse(line);
+                        bar.style.width = data.progress + "%";
+                        bar.innerText = data.progress + "%";
+                        text.innerText = data.message;
+
+                        if (data.error) {
+                            bar.classList.add('bg-danger');
+                            bar.classList.remove('progress-bar-animated');
+                            alertDiv.className = 'alert alert-danger mt-3';
+                            alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
+                            alertDiv.appendChild(document.createTextNode(data.message));
+                            alertDiv.style.display = 'block';
+                        } else if (data.success) {
+                            bar.classList.add('bg-success');
+                            bar.classList.remove('progress-bar-animated');
+                            alertDiv.className = 'alert alert-success mt-3';
+                            alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ';
+                            alertDiv.appendChild(document.createTextNode(data.message + ' Reloading...'));
+                            alertDiv.style.display = 'block';
+                            setTimeout(() => { window.location.href = "{{ url_for('php.php_manager', tab='versions') }}"; }, 1800);
+                        }
+                    }
+                }
+            } catch (err) {
+                bar.classList.add('bg-danger');
+                bar.classList.remove('progress-bar-animated');
+                alertDiv.className = 'alert alert-danger mt-3';
+                alertDiv.innerText = "Connection failed: " + err.message;
+                alertDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download me-1"></i> Install PHP';
+            }
+        });
+    }
+
+    async function openExtensionsModal(version) {
+        document.getElementById('extensionsModalTitle').innerText = `PHP ${version} Extensions`;
+        document.getElementById('extModalVersion').value = version;
+        const container = document.getElementById('extModalModules');
+        container.innerHTML = '<span class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i> Loading modules...</span>';
+
+        const modal = new bootstrap.Modal(document.getElementById('extensionsModal'));
+        modal.show();
+
+        try {
+            const res = await fetch(`/api/php/extensions/${version}`);
+            const data = await res.json();
+            if (data.modules && data.modules.length) {
+                container.replaceChildren(...data.modules.map(m => {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-light text-dark border';
+                    badge.textContent = m;
+                    return badge;
+                }));
+            } else {
+                container.innerHTML = '<span class="text-muted small">No modules reported.</span>';
+            }
+        } catch (e) {
+            container.innerHTML = '<span class="text-danger small">Failed to fetch extensions.</span>';
+        }
+    }
+    {% endif %}
+</script>
+{% endblock %}
