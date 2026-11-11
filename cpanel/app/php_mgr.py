@@ -12,7 +12,7 @@ import subprocess
 import urllib.request
 from domains_mgr import get_virtual_hosts
 
-SUPPORTED_PHP_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+SUPPORTED_PHP_VERSIONS = ['7.0', '7.1', '7.2', '7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
 
 DEFAULT_CORE_EXTENSIONS = [
     'mysql', 'curl', 'gd', 'mbstring', 'xml', 'zip', 'bcmath', 'intl', 'gmp'
