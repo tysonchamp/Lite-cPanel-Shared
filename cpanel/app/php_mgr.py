@@ -666,7 +666,8 @@ _PGP_BLOCK_RE = re.compile(
 )
 
 _SURY_KEY_URL = 'https://packages.sury.org/php/apt.gpg'
-_SURY_KEYRING_PATH = '/etc/apt/keyrings/sury-php.gpg'
+_SURY_KEYRING_PATH = '/usr/share/keyrings/deb.sury.org-keyring.gpg'
+_SURY_ASC_KEYRING_PATH = '/usr/share/keyrings/deb.sury.org-keyring.asc'
 _SURY_LIST_PATH = '/etc/apt/sources.list.d/php.list'
 
 _APT_COMMON_OPTS = [
@@ -968,20 +969,112 @@ def import_ondrej_key_text(raw_text):
         return False, f"Failed to write repository key files: {str(e)}"
 
 
+def _extract_signed_by_path(content, is_deb822=False):
+    """Extract the signed-by keyring path from an APT source file if specified."""
+    if is_deb822:
+        match = re.search(r'(?mi)^Signed-By:\s*(\S+)', content)
+        return match.group(1).strip() if match else None
+    match = re.search(r'signed-by=([^\s\]]+)', content, re.I)
+    return match.group(1).strip() if match else None
+
+
+def _is_valid_keyring_file(path):
+    """Verify a keyring file exists, is non-trivial, and does not contain HTML."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        if os.path.getsize(path) < 32:
+            return False
+        with open(path, 'rb') as kf:
+            data = kf.read()
+        if _is_html_payload(data):
+            return False
+        if path.endswith('.asc'):
+            return _extract_pgp_block(data) is not None
+        return True
+    except Exception:
+        return False
+
+
+def _configure_sury_repo(codename):
+    """
+    Fetch Sury PHP GPG key directly over HTTPS and dearmor it into
+    /usr/share/keyrings/deb.sury.org-keyring.gpg for Ubuntu & Debian.
+    """
+    ok, key_bytes, err = _curl_fetch(_SURY_KEY_URL, timeout=15)
+    if not ok or _is_html_payload(key_bytes):
+        detail = err or 'received invalid HTML response instead of GPG keyring'
+        return False, detail
+
+    keyring_path = _SURY_KEYRING_PATH
+    try:
+        os.makedirs(os.path.dirname(_SURY_KEYRING_PATH), mode=0o755, exist_ok=True)
+        if shutil.which('gpg'):
+            dearmor = subprocess.run(
+                ['gpg', '--batch', '--dearmor', '--yes'],
+                input=key_bytes,
+                capture_output=True,
+                timeout=15,
+            )
+            if dearmor.returncode != 0 or not dearmor.stdout:
+                d_err = dearmor.stderr.decode('utf-8', errors='replace').strip() or f"gpg exited {dearmor.returncode}"
+                return False, f"Failed to dearmor Sury PHP key: {d_err}"
+            out_bytes = dearmor.stdout
+        else:
+            if b'BEGIN PGP PUBLIC KEY BLOCK' in key_bytes:
+                block = _extract_pgp_block(key_bytes)
+                if not block:
+                    return False, "Downloaded Sury PHP key lacked a valid PGP key block"
+                keyring_path = _SURY_ASC_KEYRING_PATH
+                out_bytes = block
+            else:
+                out_bytes = key_bytes
+
+        # Remove stale/partial ondrej repo files so APT doesn't hit duplicate or broken sources
+        for stale in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+
+        with open(keyring_path, 'wb') as f:
+            f.write(out_bytes)
+        os.chmod(keyring_path, 0o644)
+        with open(_SURY_LIST_PATH, 'w') as f:
+            f.write(f"deb [signed-by={keyring_path}] https://packages.sury.org/php/ {codename} main\n")
+        os.chmod(_SURY_LIST_PATH, 0o644)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 def _has_valid_repo_source(os_id):
-    """Verify an existing Ondrej/Sury repo file is non-empty and references its keyring if applicable."""
-    if os_id == 'debian':
-        if not os.path.exists(_SURY_LIST_PATH) or not os.path.exists(_SURY_KEYRING_PATH):
-            return False
+    """Verify an existing Sury PHP or Ondrej PPA repo file is valid and has its keyring."""
+    # Check Sury repo entries (works on both Ubuntu and Debian)
+    sury_candidates = glob.glob('/etc/apt/sources.list.d/*.list') + glob.glob('/etc/apt/sources.list.d/*.sources')
+    if _SURY_LIST_PATH not in sury_candidates and os.path.exists(_SURY_LIST_PATH):
+        sury_candidates.insert(0, _SURY_LIST_PATH)
+
+    for path in sury_candidates:
         try:
-            with open(_SURY_LIST_PATH, 'r') as f:
+            with open(path, 'r') as f:
                 content = f.read()
-            if 'packages.sury.org' not in content or os.path.getsize(_SURY_KEYRING_PATH) == 0:
-                return False
-            with open(_SURY_KEYRING_PATH, 'rb') as kf:
-                return not _is_html_payload(kf.read())
+            active_lines = [ln.strip() for ln in content.splitlines() if ln.strip() and not ln.strip().startswith('#')]
+            active_text = '\n'.join(active_lines)
+            if 'packages.sury.org/php' not in active_text.lower():
+                continue
+            signed_by = _extract_signed_by_path(active_text, is_deb822=path.endswith('.sources'))
+            if signed_by:
+                if _is_valid_keyring_file(signed_by):
+                    return True
+                continue
+            if _is_valid_keyring_file(_SURY_KEYRING_PATH) or _is_valid_keyring_file(_SURY_ASC_KEYRING_PATH):
+                return True
         except Exception:
-            return False
+            continue
+
+    if os_id == 'debian':
+        return False
 
     for path in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
         try:
@@ -992,12 +1085,11 @@ def _has_valid_repo_source(os_id):
                 continue
             if path.endswith('.sources') and ('uris:' not in lowered or 'signed-by:' not in lowered):
                 continue
-            if _ONDREJ_KEYRING_PATH in content:
-                if not os.path.exists(_ONDREJ_KEYRING_PATH):
-                    continue
-                with open(_ONDREJ_KEYRING_PATH, 'rb') as kf:
-                    if not _extract_pgp_block(kf.read()):
-                        continue
+            signed_by = _extract_signed_by_path(content, is_deb822=path.endswith('.sources'))
+            if signed_by and not _is_valid_keyring_file(signed_by):
+                continue
+            if _ONDREJ_KEYRING_PATH in content and not _is_valid_keyring_file(_ONDREJ_KEYRING_PATH):
+                continue
             return True
         except Exception:
             continue
@@ -1006,46 +1098,38 @@ def _has_valid_repo_source(os_id):
 
 def _ensure_php_repository_iter(env):
     """
-    Generator that configures ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian),
-    yielding live progress events and finishing with {'done': True, 'ok': bool, 'error': str | None}.
+    Generator that configures Sury PHP repo (packages.sury.org, primary for Ubuntu & Debian)
+    with Launchpad ondrej/php PPA fallback on Ubuntu, yielding live progress events and
+    finishing with {'done': True, 'ok': bool, 'error': str | None}.
     """
     os_info = _detect_os_info()
     os_id = os_info['id']
     codename = os_info['codename']
 
-    if os_id == 'debian':
-        if _has_valid_repo_source('debian'):
-            yield {'done': True, 'ok': True, 'error': None}
-            return
-        os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
-        yield {'percent': 21, 'message': 'Downloading Sury PHP GPG key (packages.sury.org)...'}
-        ok, key_bytes, err = _curl_fetch(_SURY_KEY_URL, timeout=15)
-        if not ok or _is_html_payload(key_bytes):
-            detail = err or 'received invalid HTML response instead of GPG keyring'
-            yield {'done': True, 'ok': False, 'error': f"Failed to download Sury PHP GPG key: {detail}"}
-            return
-        with open(_SURY_KEYRING_PATH, 'wb') as f:
-            f.write(key_bytes)
-        os.chmod(_SURY_KEYRING_PATH, 0o644)
-        with open(_SURY_LIST_PATH, 'w') as f:
-            f.write(f"deb [signed-by={_SURY_KEYRING_PATH}] https://packages.sury.org/php/ {codename} main\n")
-        os.chmod(_SURY_LIST_PATH, 0o644)
-        yield {'percent': 26, 'message': 'Configured Sury PHP repository.'}
+    if _has_valid_repo_source(os_id):
         yield {'done': True, 'ok': True, 'error': None}
         return
 
-    # Ubuntu / derivatives
-    if _has_valid_repo_source('ubuntu'):
-        yield {'done': True, 'ok': True, 'error': None}
-        return
-
-    os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
     attempts = []
+
+    yield {'percent': 21, 'message': 'Configuring Sury PHP repository (packages.sury.org)...'}
+    s_ok, s_err = _configure_sury_repo(codename)
+    if s_ok:
+        yield {'percent': 26, 'message': f'Configured Sury PHP repository ({codename}).'}
+        yield {'done': True, 'ok': True, 'error': None}
+        return
+    if os_id == 'debian':
+        yield {'done': True, 'ok': False, 'error': f"Failed to configure Sury PHP repository: {s_err}"}
+        return
+    attempts.append(f"Sury HTTPS (packages.sury.org): {s_err}")
+
+    # Ubuntu / derivatives fallback: ondrej/php PPA
+    os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
     key_block = _find_local_ondrej_key()
 
     if key_block is None:
         for idx, (label, url, require_gpg) in enumerate(_ONDREJ_KEY_SOURCES):
-            pct = min(24, 21 + idx)
+            pct = min(24, 22 + idx)
             yield {'percent': pct, 'message': f"Fetching ondrej/php GPG key from {label}..."}
             ok, raw_bytes, fetch_err = _curl_fetch(url, timeout=10)
             if not ok:
@@ -1102,13 +1186,14 @@ def _ensure_php_repository_iter(env):
         attempts.append("add-apt-repository: binary not found")
 
     detail = ' | '.join(attempts) if attempts else 'Unknown error'
-    yield {'done': True, 'ok': False, 'error': f"Failed to configure ondrej/php repository: {detail}"}
+    yield {'done': True, 'ok': False, 'error': f"Failed to configure PHP repository: {detail}"}
 
 
 def _ensure_php_repository(env):
     """
-    Configure ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian) directly over HTTPS
-    without interactive prompts or keyserver HKP hangs.
+    Configure Sury PHP repo (packages.sury.org, primary for Ubuntu & Debian)
+    with Launchpad ondrej/php PPA fallback on Ubuntu over HTTPS without
+    interactive prompts or keyserver HKP hangs.
     """
     last = {'ok': False, 'error': 'Unknown repository configuration error'}
     for event in _ensure_php_repository_iter(env):
@@ -1253,7 +1338,7 @@ def install_php_generator(version, extensions=None):
         for force_v4 in (False, True):
             extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
             update_cmd = ['apt-get', 'update', '-y'] + _APT_COMMON_OPTS + extra_v4
-            prog = 28
+            prog = 30 if force_v4 else 28
             rc = 1
             tail = []
             step_timeout = 75 if not force_v4 else 180

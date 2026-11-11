@@ -589,7 +589,7 @@
                     alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
                     alertDiv.appendChild(document.createTextNode(data.message));
                     alertDiv.style.display = 'block';
-                    if (data.message && data.message.includes('Failed to configure ondrej/php repository')) {
+                    if (data.message && data.message.includes('Failed to configure')) {
                         const fallbackBox = document.getElementById('ondrejKeyFallbackBox');
                         if (fallbackBox) fallbackBox.open = true;
                     }

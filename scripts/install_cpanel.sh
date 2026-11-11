@@ -14,9 +14,29 @@ echo "======================================"
 apt-get update
 apt-get install -y net-tools
 apt-get install -y libwww-perl liblwp-protocol-https-perl libgd-graph-perl libcrypt-ssleay-perl
-apt-get install -y zip unzip curl
+apt-get install -y zip unzip curl gnupg ca-certificates lsb-release
 apt-get install -y python3-venv python3-pip libmysqlclient-dev pkg-config \
     pure-ftpd libwww-perl sendmail iptables wget tar goaccess
+
+# Configure Sury PHP repository for Multi-PHP Manager (IPv4-first over HTTPS)
+echo "Configuring Sury PHP repository..."
+mkdir -p /usr/share/keyrings
+PHP_DISTRO_CODENAME=$(. /etc/os-release 2>/dev/null && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null)}}")
+if [ -n "$PHP_DISTRO_CODENAME" ]; then
+    TMP_SURY_KEY=$(mktemp)
+    if (curl -4 -fsSL "https://packages.sury.org/php/apt.gpg" -o "$TMP_SURY_KEY" || curl -fsSL "https://packages.sury.org/php/apt.gpg" -o "$TMP_SURY_KEY") \
+        && [ -s "$TMP_SURY_KEY" ] \
+        && gpg --batch --dearmor --yes -o /usr/share/keyrings/deb.sury.org-keyring.gpg "$TMP_SURY_KEY"; then
+        rm -f /etc/apt/sources.list.d/*ondrej*php*
+        chmod 644 /usr/share/keyrings/deb.sury.org-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/deb.sury.org-keyring.gpg] https://packages.sury.org/php/ $PHP_DISTRO_CODENAME main" > /etc/apt/sources.list.d/php.list
+        chmod 644 /etc/apt/sources.list.d/php.list
+        apt-get update -o Acquire::ForceIPv4=true || apt-get update || true
+    else
+        echo "Warning: Failed to configure Sury PHP repository automatically; Multi-PHP Manager will retry when needed."
+    fi
+    rm -f "$TMP_SURY_KEY"
+fi
 
 # Ensure Pure-FTPd is setup for virtual users
 echo "Configuring Pure-FTPd..."
