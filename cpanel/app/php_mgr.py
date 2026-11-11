@@ -693,7 +693,10 @@ def _curl_fetch(url, timeout=25):
     for extra in ([], ['-4']):
         try:
             res = subprocess.run(
-                ['curl', '-fsSL', '--connect-timeout', '8', '--max-time', str(timeout)] + extra + [url],
+                [
+                    'curl', '-fsSL', '--http1.1', '--retry', '2', '--retry-delay', '1',
+                    '--connect-timeout', '8', '--max-time', str(timeout)
+                ] + extra + [url],
                 capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 10
             )
             if res.returncode == 0 and res.stdout:
@@ -768,6 +771,12 @@ def _ensure_php_repository(env):
     os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
     ok, key_bytes, err = _curl_fetch(_ONDREJ_KEY_URL)
     if ok and b'BEGIN PGP PUBLIC KEY BLOCK' in key_bytes:
+        # Remove any broken/partial ondrej repo files left by interrupted runs
+        for stale in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
         with open(_ONDREJ_KEYRING_PATH, 'wb') as f:
             f.write(key_bytes)
         os.chmod(_ONDREJ_KEYRING_PATH, 0o644)
