@@ -29,6 +29,10 @@ Pin: origin packages.sury.org
 Pin-Priority: -1
 
 Package: php php-fpm php-cli php-cgi php-phpdbg libapache2-mod-php libphp-embed php-all-dev php-*-all-dev php-mysql php-gd php-curl php-gmp php-mbstring php-xml php-zip php-bcmath php-intl php-json php-mongodb php-imagick php-redis php-memcached php-soap php-sqlite3 php-pgsql php-ldap php-imap php-opcache php-bz2 php-readline php-pear
+Pin: release o=deb.sury.org
+Pin-Priority: -1
+
+Package: php php-fpm php-cli php-cgi php-phpdbg libapache2-mod-php libphp-embed php-all-dev php-*-all-dev php-mysql php-gd php-curl php-gmp php-mbstring php-xml php-zip php-bcmath php-intl php-json php-mongodb php-imagick php-redis php-memcached php-soap php-sqlite3 php-pgsql php-ldap php-imap php-opcache php-bz2 php-readline php-pear
 Pin: release o=LP-PPA-ondrej-php
 Pin-Priority: -1
 EOF

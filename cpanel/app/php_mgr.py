@@ -756,20 +756,28 @@ _APT_INSTALL_OPTS = _APT_COMMON_OPTS + [
 ]
 
 
+_PHP_METAPKG_PIN_CLAUSES = (
+    'Pin: origin packages.sury.org',
+    'Pin: release o=deb.sury.org',
+    'Pin: release o=LP-PPA-ondrej-php',
+)
+
+
+def _metapkg_pin_blocks():
+    """Return APT preference blocks pinning unversioned Sury/Ondrej PHP metapackages to -1."""
+    pkg_list = ' '.join(_UNVERSIONED_PHP_METAPACKAGES)
+    return [
+        f"Package: {pkg_list}\n{clause}\nPin-Priority: -1\n"
+        for clause in _PHP_METAPKG_PIN_CLAUSES
+    ]
+
+
 def _ensure_php_metapkg_pins():
     """
     Pin unversioned Sury/Ondrej PHP metapackages (-1) so apt upgrade / installs
     never pull unrelated PHP versions (such as php8.4 or php8.5) unexpectedly.
     """
-    pkg_list = ' '.join(_UNVERSIONED_PHP_METAPACKAGES)
-    content = (
-        f"Package: {pkg_list}\n"
-        "Pin: origin packages.sury.org\n"
-        "Pin-Priority: -1\n\n"
-        f"Package: {pkg_list}\n"
-        "Pin: release o=LP-PPA-ondrej-php\n"
-        "Pin-Priority: -1\n"
-    )
+    content = '\n'.join(_metapkg_pin_blocks())
     try:
         os.makedirs(os.path.dirname(_PHP_PREFS_PATH), mode=0o755, exist_ok=True)
         if os.path.exists(_PHP_PREFS_PATH):
@@ -858,17 +866,11 @@ def _scoped_apt_isolation_prefs(target_version):
                     "Pin-Priority: -1\n"
                 )
 
-    pkg_list = ' '.join(_UNVERSIONED_PHP_METAPACKAGES)
-    for pin_clause in ('Pin: origin packages.sury.org', 'Pin: release o=LP-PPA-ondrej-php'):
-        blocks.append(f"Package: {pkg_list}\n{pin_clause}\nPin-Priority: -1\n")
+    blocks.extend(_metapkg_pin_blocks())
 
-    # Ubuntu 24.04 ships php-common 2:93* which satisfies PHP <= 8.3 (>= 1:81~); keep it from
-    # upgrading to Sury's 2:101+ which Breaks old php-mongodb and drags php8.5-mongodb.
-    if _version_sort_key(target_version) < (8, 4):
-        php_common_ver = _get_pkg_installed_version('php-common')
-        if php_common_ver and _dpkg_compare_versions(php_common_ver, 'lt', '2:95~'):
-            for pin_clause in ('Pin: origin packages.sury.org', 'Pin: release o=LP-PPA-ondrej-php'):
-                blocks.append(f"Package: php-common\n{pin_clause}\nPin-Priority: 100\n")
+    # Note: Do NOT pin php-common below Sury's version; Ubuntu 24.04's stock php-common (2:93*)
+    # explicitly `Breaks: php5.6-common .. php8.2-common`, so php-common must be free to upgrade
+    # to Sury's 2:101+ while unversioned metapackages (e.g. php-mongodb) stay pinned at -1.
 
     pref_path = None
     try:
@@ -1530,6 +1532,43 @@ def _stream_apt_update_with_fallback(env, start_prog=28, retry_prog=30, max_prog
     yield {'done': True, 'ok': False, 'used_ipv4': False, 'error': apt_err}
 
 
+def _preserve_versioned_pecl_before_common_upgrade():
+    """
+    When Ubuntu 24.04's php-common (2:93*) upgrades to Sury 2:101+ to allow PHP <= 8.2,
+    APT removes obsolete unversioned PECL wrappers (like php-mongodb). Mark already-installed
+    versioned extension packages (like php8.3-mongodb) manual so apt autoremove preserves them.
+    """
+    if not shutil.which('apt-mark'):
+        return
+    php_common_ver = _get_pkg_installed_version('php-common')
+    if not php_common_ver or not _dpkg_compare_versions(php_common_ver, 'lt', '2:95~'):
+        return
+    installed_php_pkgs = _get_all_installed_php_dpkg_versions()
+    if not installed_php_pkgs:
+        return
+    checked_meta = {}
+    to_mark = []
+    for pkg in sorted(installed_php_pkgs):
+        m = re.fullmatch(r'php\d+\.\d+-([a-z0-9.+-]+)', pkg)
+        if not m:
+            continue
+        meta = f'php-{m.group(1)}'
+        if meta not in _UNVERSIONED_PHP_METAPACKAGES:
+            continue
+        if meta not in checked_meta:
+            checked_meta[meta] = bool(_get_pkg_installed_version(meta))
+        if checked_meta[meta]:
+            to_mark.append(pkg)
+    if to_mark:
+        try:
+            subprocess.run(
+                ['apt-mark', 'manual'] + to_mark,
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=15
+            )
+        except Exception:
+            pass
+
+
 def install_php_generator(version, extensions=None):
     """Generator for live-streaming a new PHP version installation (admin-only)."""
     def emit(progress, message, error=False, success=False, detail=''):
@@ -1604,6 +1643,7 @@ def install_php_generator(version, extensions=None):
                 packages.append(pkg)
 
         yield emit(45, f"Installing PHP {version} FPM, CLI, and {len(packages) - 3} extensions...")
+        _preserve_versioned_pecl_before_common_upgrade()
         install_attempts = [True] if used_ipv4 else [False, True]
         prog = 45
         rc = 1
