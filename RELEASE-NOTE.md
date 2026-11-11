@@ -1,5 +1,33 @@
 # Updates:
 
+## 11.11.2026 (Multi-PHP Manager, Security Hardening & Complete Lifecycle Cleanup)
+
+1. **Multi-PHP Manager (`7.0`–`8.5`)**:
+   - Added a complete Multi-PHP Manager (`php_mgr.py`, `routes_php.py`, `templates/php.html`) supporting PHP `7.0` through `8.5` across **Hybrid**, **Nginx**, and **Apache** stacks.
+   - Supports per-domain and bulk domain PHP switching (or `Inherit System Default`), system default CLI/Nginx/Apache switching, PHP-FPM service controls (start/stop/restart/reload), extension management, and clean uninstallation of non-default unused versions.
+   - Added an interactive **PHP INI Editor** for core directives (`memory_limit`, `upload_max_filesize`, `post_max_size`, `max_execution_time`, `max_input_time`, `max_input_vars`, `display_errors`, `date.timezone`) per PHP version and SAPI (`fpm`, `apache2`, `cli`).
+2. **Sury PHP Repository & Isolated APT Package Pinning**:
+   - Switched PHP repository provisioning in both `scripts/install_cpanel.sh` and `php_mgr.py` to `packages.sury.org/php` over IPv4-first HTTPS with GPG keyring verification and a manual PGP key import fallback in the UI.
+   - Added permanent unversioned PHP metapackage pins (`/etc/apt/preferences.d/99-lite-cpanel-php`) alongside scoped per-install/per-upgrade series pinning and `apt-mark manual` preservation for versioned PECL extensions (such as `php*-mongodb`), preventing unintended installations of newer PHP releases (`8.4`/`8.5`) and `php-common` conflict breaks on Ubuntu 24.04.
+3. **PHP Version Updater**:
+   - Added APT policy update checking (`apt-cache policy`) and streaming `--only-upgrade` package updates for individual PHP versions or all installed versions simultaneously, preserving running PHP-FPM states and CLI `update-alternatives`.
+4. **Comprehensive User Deletion Cleanup (`user_cleanup_mgr.py`)**:
+   - Deleting a shared user from Manage Users now cleans up all associated system resources in safe order: PM2 processes, Docker Compose stacks/containers/volumes/images, Nginx/Apache virtual hosts, Let's Encrypt certificates, domain logs, MySQL/MariaDB databases & users, MongoDB databases & users, Pure-FTPd/SFTP accounts & jail symlinks, user crontabs, running OS processes, and the Linux user/group and `/home/<user>` directory, with structured summary/warning reporting.
+5. **Domain & Next.js App Deletion Lifecycle**:
+   - Added virtual host deletion on the **Domains** page (`domains_mgr.py`, `routes_domains.py`, `domains.html`) for both `root` (`admin`) and shared users (for their addon domains), cleaning up Nginx/Apache vhosts, Certbot certs, domain logs, document roots, and `user_resources` tracking.
+   - Merged `-le-ssl.conf` detection cleanly under `Apache SSL` (eliminating duplicate `-le-ssl` rows) and enforced strict protection preventing standalone deletion of any account's primary `main_domain`, even by `root`.
+   - Upgraded Next.js app deletion (`nextjs_mgr.py`) to stop/remove matching PM2 processes, delete proxy vhosts/SSL/logs, release allocated ports, and safely delete the app directory (preserving `public_html` when attached to a `main_domain`).
+6. **Admin-Only Access Hardening**:
+   - Enforced `@admin_required` and strict `role == 'admin'` checks on sensitive routes and installers (ModSecurity, MongoDB & Mongo Express install/credentials access, global PM2 installation, Multi-PHP management tabs/API/actions, Hosting Plans, Manage Users, System Settings, Firewall, Backups, and Web Terminal) and updated blueprint-namespaced auth redirects.
+
+## 29.08.2026 (Multi-User, Hosting Plans, Docker & Modular Architecture Update)
+
+1. **Multi-User Hosting & Quota Enforcement**: Introduced SQLite-backed Hosting Plans (`max_domains`, `max_databases`, `max_mongodb`, `max_nextjs`, `max_docker`), isolated shared user accounts, automated `main_domain` virtual host + home web-root provisioning, auto-created jailed SFTP/FTP accounts, and tenant-scoped views across domains, databases, MongoDB, cron, and traffic stats.
+2. **Docker Manager**: Added Docker container controls (`start`, `stop`, `restart`, `remove`, container run), `docker compose` execution, automated port allocation (`9000+`), and Apache/Nginx reverse-proxy mapping with SSL support.
+3. **Modular Flask Blueprints**: Refactored panel routing into dedicated modules under `cpanel/app/lib/` (`routes_auth`, `routes_dashboard`, `routes_domains`, `routes_databases`, `routes_nextjs`, `routes_filemanager`, `routes_system`, `routes_wordpress`, `routes_admin`, `routes_docker`).
+4. **Next.js, WordPress & SFTP Refinements**: Added domain-derived document roots and automated port allocation (`3000+`) for Next.js apps, NVM Node.js integration, custom document roots with isolated ownership for WordPress, and symlinked per-group SFTP chroot jails.
+5. **DNS Study**: Added `dns_management_study.md` evaluating future DNS management integration.
+
 ## 23.04.2026 (Security & Framework Optimization Update)
 
 1. **Jailed SFTP (Chroot)**: Implemented ChrootDirectory for FTP users, restricting them to their home directories and enhancing server security.

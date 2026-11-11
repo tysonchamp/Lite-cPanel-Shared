@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python" />
-  <img src="https://img.shields.io/badge/Flask-2.x-lightgrey?logo=flask" />
+  <img src="https://img.shields.io/badge/Flask-3.x-lightgrey?logo=flask" />
   <img src="https://img.shields.io/badge/Ubuntu-20.04%2B-orange?logo=ubuntu" />
   <img src="https://img.shields.io/badge/License-GPL--3.0-green" />
   <img src="https://img.shields.io/badge/Status-Active-brightgreen" />
@@ -38,20 +38,32 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 ### 🖥️ Dashboard
 - Real-time **CPU, RAM, and Disk** usage meters
 - **Live Process View** — auto-refreshing top-10 process table with CPU/Memory percentages and 1/5/15-min load averages
-- **System Services Monitor** — live status badges (Active / Inactive / Failed / Uninstalled) for Apache, Nginx, PHP-FPM, MySQL, MongoDB, Mongo Express, CSF Firewall, ModSecurity, and Lite cPanel itself
-- One-click **Restart** button for each service directly from the dashboard
+- **System Services Monitor** (Admin only) — live status badges (Active / Inactive / Failed / Uninstalled) for Apache, Nginx, PHP-FPM, MySQL, MongoDB, Mongo Express, CSF Firewall, ModSecurity, and Lite cPanel itself
+- One-click **Restart** button for each service directly from the dashboard (Admin only)
+- **Scoped Analytics & Visibility** — regular shared users see traffic and resources restricted to their own domains
 
 ### 👥 Multi-User & Hosting Plans
-- **Role-Based Access Control** — Isolate regular users from the main Admin account
-- **Hosting Plans** — Create custom plans with precise resource limits (Domains, MySQL, MongoDB, Next.js, Docker, FTP, etc.)
-- **User Isolation** — Users operate within their own home directories with isolated FTP access and private cron jobs
+- **Role-Based Access Control** — Isolate shared hosting users from the `root`/Admin account; server-wide installers and sensitive controls (Multi-PHP management, PM2 install, MongoDB/Mongo Express setup & credentials, ModSecurity, Firewall, Backups, Terminal, Settings) are strictly Admin-only
+- **Hosting Plans** — Create and edit custom plans with SQLite-backed resource limits (`max_domains`, `max_databases`, `max_mongodb`, `max_nextjs`, `max_docker`)
+- **Automated Account Provisioning** — Automatically sets up the user's primary `main_domain` Apache/Nginx virtual host, `/home/<user>/public_html` web root, and a corresponding jailed SFTP/FTP account
+- **Complete System Cleanup on Deletion** — Deleting a user removes SQLite records alongside all system artifacts: PM2 processes, Docker Compose stacks/containers/volumes/images, Apache/Nginx vhosts, SSL certificates, domain logs, MySQL/MariaDB databases & users, MongoDB databases & users, FTP/SFTP virtual accounts & jail symlinks, crontab, running user OS processes, Linux user/group, and `/home/<user>`
 - **Resource Enforcement** — Automatically tracks and prevents users from exceeding their allocated plan limits
 
-### 🌐 Domain Manager
-- Add and remove Apache/Nginx virtual hosts with a single click
-- Enable/Disable individual domains without deleting them
-- **SSL Certificate management** — generate and renew Let's Encrypt certificates per domain
-- Per-domain **log viewer** with live tail (Apache Error, Apache Access, Nginx Error, Nginx Access, Syslog)
+### 🌐 Domain & SSL Manager
+- **Virtual Host Provisioning & Deletion** — Add and delete Apache/Nginx virtual hosts with one click (shared users can manage their own addon domains; `root` can manage server-wide and addon domains)
+- **Primary Main Domain Protection** — Protects each shared hosting account's primary `main_domain` from standalone deletion (even for `root`) until the account is deleted from Manage Users
+- **Unified SSL & VHost Detection** — Merges Apache `-le-ssl.conf` configs under `Apache SSL` cleanly without duplicate `-le-ssl` rows, alongside Enable/Disable toggles without data loss
+- **Smart SSL Generation & Renewal** — Automatically detects which webserver (Apache/Nginx) is serving port 80 to select the right Snap-based Certbot plugin, with `www` DNS pre-verification
+- **Per-Domain Log Viewer & Inline Editor** — Tail Apache/Nginx access/error logs and syslog per domain, and edit Nginx, Apache, or `Apache SSL` vhost configs inline (Admin only)
+- **Clean Artifact Removal** — Deleting a domain removes Nginx/Apache configs, Let's Encrypt certs, domain logs, its document root (`/home/<owner>/public_html/<domain>` or `/var/www/<domain>`), and hosting plan tracking
+
+### 🐘 Multi-PHP Manager
+- **Multi-Version PHP Support (`7.0`–`8.5`)** — Install, uninstall (non-default, unused versions), and switch between PHP `7.0` through `8.5` (`php*-fpm` & CLI) across **Hybrid** (`Nginx + Apache FPM`), **Nginx** (`FastCGI`), and **Apache** (`proxy_fcgi`) stacks
+- **Per-Domain & Bulk PHP Switching** — Switch individual domains or apply a PHP version (or `Inherit System Default`) to multiple domains at once, scoped by ownership for shared users
+- **Sury PHP Repository & Isolated APT Pinning** — Automatically configures `packages.sury.org/php` over IPv4-first HTTPS (with GPG verification and manual PGP key import fallback) and enforces APT metapackage + per-series pinning so installing or upgrading a single PHP version (e.g., PHP `7.4` on Ubuntu 24.04) never pulls unwanted versions (`8.4`/`8.5`) or breaks PECL packages (`php*-mongodb`)
+- **PHP Version Updater** — Built-in APT policy update checker and streaming `--only-upgrade` updater for single PHP versions or all installed versions at once, preserving FPM service states and CLI `update-alternatives`
+- **Extensions & Service Control** — Install PHP extensions (`mysql`, `curl`, `gd`, `mbstring`, `xml`, `zip`, `bcmath`, `intl`, `gmp`, `imagick`, `redis`, `memcached`, `mongodb`, `soap`, `sqlite3`, `pgsql`, `ldap`, `imap`, `opcache`), inspect loaded modules, change the system default PHP version, and start/stop/restart/reload PHP-FPM services
+- **PHP INI Editor** — Safely edit core directives (`memory_limit`, `upload_max_filesize`, `post_max_size`, `max_execution_time`, `max_input_time`, `max_input_vars`, `display_errors`, `date.timezone`) per PHP version and SAPI (`fpm`, `apache2`, `cli`) with validation and automatic service reload
 
 ### 🗄️ Database Manager
 - Create MySQL/MariaDB databases with a dedicated user and strong password
@@ -66,11 +78,11 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - Bind FTP users to specific web root directories with path traversal prevention
 
 ### 🍃 MongoDB Manager
-- **One-click installer** — installs MongoDB 8.x directly from the official repository
-- Create MongoDB databases with a dedicated user and strong password
+- **One-click installer** (Admin only) — installs MongoDB 8.x directly from the official repository
+- Create MongoDB databases with a dedicated user and strong password (subject to hosting plan limits)
 - Drop databases and automatically clean up associated users
 - Change database user passwords from the panel
-- **Mongo Express** — install, start, restart, and access the web-based MongoDB admin UI (`/mongo-express`) with auto-generated credentials and Apache reverse proxy
+- **Mongo Express** (Admin-only setup & credential access) — install, start, restart, and access the web-based MongoDB admin UI (`/mongo-express/`) with auto-generated credentials and Apache reverse proxy
 
 ### 📂 File Manager
 - Browse the full server filesystem from the browser with breadcrumb navigation
@@ -88,7 +100,7 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - Edit the raw `csf.allow`, `csf.deny`, `csf.ignore`, and `csf.conf` files in-browser
 - Live port overview
 
-### 🔒 ModSecurity (WAF)
+### 🔒 ModSecurity (WAF) *(Admin only)*
 - **One-click installer** — installs `libapache2-mod-security2` + OWASP Core Rule Set directly from the panel with a live progress bar
 - Switch between **On / Detection-Only / Off** rule engine modes globally
 - Toggle ModSecurity per-domain
@@ -97,32 +109,30 @@ It bundles a full automated LAMP/LEMP stack installer alongside a browser-based 
 - Live audit log viewer with domain filtering
 
 ### 🌟 WordPress Manager
-- Auto-install WordPress on any configured domain with an optional sub-path
+- Auto-install WordPress on any configured domain with an optional sub-path and custom document root support
 - Live streaming **progress bar** during installation
 - Creates a secure, isolated MySQL database and user — credentials stored **only** in `wp-config.php`
 - Detect existing and partial/broken WordPress installations
 - One-click **Uninstall** — drops the WordPress database/user and removes all WordPress-specific files
 
-### 🚀 Next.js & Node.js Manager
-- **Node.js Process Manager** — Full graphical interface for **PM2**
-- **Live Monitoring** — Real-time CPU, Memory, and Uptime tracking for background Node.js applications
-- **Lifecycle Controls** — Start, Stop, Restart, and Delete processes with one click
-- **Integrated Log Viewer** — View stdout/stderr logs in a beautiful modal for instant debugging
-- **One-Click Startup** — Quickly launch Next.js apps on custom ports with automatic persistence
-- **NVM Awareness** — Automatically detects and supports Node.js versions installed via NVM
+### 🚀 Next.js Apps Manager
+- **Domain-Derived Setup & Auto Ports** — Creates Nginx/Apache reverse proxies automatically on uniquely allocated ports (`3000+`) using the domain's document root (`/home/<user>/public_html/<domain>` or `/var/www/<domain>`)
+- **Plan Limit Enforcement & SSL** — Enforces shared hosting plan `max_nextjs` quotas and supports Let's Encrypt SSL generation/renewal for proxy domains
+- **Clean App Deletion** — Stops and deletes matching PM2 processes, removes Nginx/Apache proxies, SSL certs, and logs, releases allocated ports, and removes the app directory (safely preserving `public_html` when attached to a user's `main_domain`)
+
+### ⚡ Process Manager (PM2)
+- **Live PM2 Process Table** — Real-time monitoring of managed PM2 processes via `pm2 jlist`, displaying status (`Online` / `Stopped`), PID/PM ID, CPU %, memory usage, and uptime
+- **Process Lifecycle Controls** — One-click `Start`, `Stop`, `Restart`, and `Delete` per PM2 process
+- **One-Click Build & Launch** — Quick-add dropdown synced with configured Next.js proxies, built-in `NPM Install` and `NPM Build` actions, and launch support for both `ecosystem.config.js` and `package.json` (`npm start -- -p PORT`)
+- **Boot Resurrection & NVM Awareness** — Automatically saves PM2 process lists (`pm2 save`), runs `pm2 resurrect` on panel startup, and auto-detects Node.js installations under NVM
+- **Live Logs Modal** — Inspect stdout/stderr logs (`pm2 logs --nostream`) directly in-browser for rapid debugging
+- **Role-Gated Setup & Cleanup** — Restricts global PM2 setup actions to Admin (`root`) users and cleanly removes tenant PM2 processes upon Next.js app or user deletion
 
 ### 🐳 Docker Manager
-- **Docker Domain Proxy** — Map any domain to a Docker container seamlessly
-- **Automatic Port Allocation** — Automatically assigns available ports (9000+) to prevent conflicts and ensure tracking
-- **Secure Isolation** — Integrated tightly with hosting plan limits
-
-### 🌐 Domain & SSL Manager
-- **Smart SSL Generation** — Automatically detects which webserver (Apache/Nginx) is serving port 80 to choose the correct Certbot plugin
-- **DNS Verification** — Automatically verifies DNS resolution for the `www` subdomain before including it in the SSL request, preventing validation failures
-- **Snap Certbot** — Uses the official, more robust Snap-based Certbot installation method
-- **Domain-Specific Logs** — Enhanced per-domain log viewer with live tailing and fallback support
-- **Reverse Proxy** — Automatically generate Nginx/Apache reverse proxy configurations for Next.js applications
-- **Inline Editor** — Advanced configuration editor with built-in SSL generation support
+- **Container & Compose Control** — List, start, stop, restart, remove, launch custom Docker containers, and execute `docker compose` workflows
+- **Docker Domain Proxy** — Map any domain to a Docker container seamlessly with Nginx/Apache reverse proxies
+- **Automatic Port Allocation** — Automatically assigns available ports (`9000+`) to prevent conflicts and ensure tracking
+- **Secure Isolation** — Integrated tightly with hosting plan limits and tenant cleanup
 
 ### 📊 Web Traffic Analytics (GoAccess)
 - **Real-time Monitoring** — Integrated GoAccess engine for live parsing of Nginx and Apache access logs
@@ -192,8 +202,6 @@ The automated installer supports three web stack configurations:
 
 | Stack | Web Server | PHP | Use Case |
 |---|---|---|---|
-| **LAMP** | Apache 2 | `mod_php` | Classic shared hosting setup |
-| **LEMP** | Nginx | PHP-FPM | High-performance modern sites |
 | **Hybrid** | Nginx (port 80) + Apache (port 8080) | PHP-FPM | Best of both — Nginx as proxy, Apache for `.htaccess` compatibility |
 
 All stacks include **MariaDB**, **phpMyAdmin**, and optional **MongoDB**.
@@ -222,12 +230,12 @@ chmod +x install.sh && ./install.sh
 ```
 
 The installer will:
-1. Prompt you to choose your preferred web stack (LAMP / LEMP / Hybrid)
-2. Install all required packages non-interactively
-3. Configure Apache and/or Nginx with a default virtual host
-4. Set up MariaDB with a secure root password
-5. Install phpMyAdmin with auto-generated credentials
-6. Deploy and start the Lite cPanel panel as a system service on port **2083**
+1. Run `scripts/web-stack-installer.sh` (automatically selecting the **Hybrid** Nginx + Apache + PHP-FPM stack)
+2. Install required system packages, Pure-FTPd, GoAccess, CSF Firewall, ModSecurity, and Webmin helpers
+3. Configure Apache and Nginx with a default virtual host
+4. Set up MariaDB and phpMyAdmin with auto-generated credentials
+5. Configure the `packages.sury.org/php` repository (IPv4-first with GPG keyring) and pin unversioned PHP metapackages for Multi-PHP Manager isolation
+6. Deploy and start the Lite cPanel panel as a systemd service on port **2083**
 
 ### Step 3 — Access the panel
 
@@ -267,49 +275,84 @@ python3 app/cpanel.py
 ## Project Structure
 
 ```
-Lite-cPanel/
-├── install.sh                  # Main orchestrator installer
+Lite-cPanel-Shared/
+├── install.sh                  # Main orchestrator installer (Hybrid stack + panel)
+├── RELEASE-NOTE.md             # Chronological release notes and changelog
+├── PROJECT_GUIDELINES.md       # Security & coding standards
+├── dns_management_study.md     # DNS management architecture study
 ├── scripts/
-│   └── lamp-installer.sh      # Core LAMP/LEMP/Hybrid stack installer
+│   ├── install_cpanel.sh       # Panel dependencies, Sury PHP repo & pins, systemd setup
+│   ├── web-stack-installer.sh  # Automated LAMP/LEMP/Hybrid stack & vhost installer
+│   ├── lamp-installer.sh       # Legacy LAMP installer script
+│   ├── vhost-manager.sh        # Virtual host setup helper
+│   └── webmin.sh               # Webmin helper script
 ├── cpanel/
 │   ├── requirements.txt
 │   └── app/
-│       ├── cpanel.py           # Flask application & routing
-│       ├── auth.py             # PAM authentication
-│       ├── backup_mgr.py       # Automated Backup Manager (Local, FTP, S3)
-│       ├── cron_mgr.py         # Cron job scheduling
-│       ├── database_mgr.py     # MySQL management
-│       ├── domains_mgr.py      # Virtual host management
-│       ├── filemanager_mgr.py  # File Manager (browse, edit, upload, compress, extract)
-│       ├── ftp_mgr.py          # Pure-FTPd user management
-│       ├── modsec_mgr.py       # ModSecurity management & installer
+│       ├── cpanel.py           # Flask application, WebSocket terminal & blueprint registry
+│       ├── auth.py             # PAM authentication & RBAC decorators
+│       ├── hosting_mgr.py      # SQLite hosting plans, tenant accounts, quotas & port allocators
+│       ├── user_cleanup_mgr.py # Ordered system resource cleanup (PM2, Docker, vhosts, SSL, DBs, FTP, Linux user)
+│       ├── domains_mgr.py      # Virtual host discovery, provisioning & safe deletion
+│       ├── php_mgr.py          # Multi-PHP (7.0-8.5), Sury APT isolation, updater, extensions & INI editor
+│       ├── nextjs_mgr.py       # Next.js Apps Manager (PM2, domain proxy & safe deletion)
+│       ├── docker_mgr.py       # Docker container, Compose & domain proxy manager
+│       ├── process_mgr.py      # PM2 process & NVM environment management
+│       ├── database_mgr.py     # MySQL/MariaDB database & user management
 │       ├── mongodb_mgr.py      # MongoDB & Mongo Express management
-│       ├── nextjs_mgr.py       # Next.js Apps Manager (PM2 + proxy)
-│       ├── run_backup.py       # Automated backup execution script
-│       ├── security_mgr.py     # CSF Firewall management
-│       ├── settings_mgr.py     # Config editor & log viewer
+│       ├── filemanager_mgr.py  # File Manager (browse, edit, upload, compress, extract)
+│       ├── ftp_mgr.py          # Pure-FTPd virtual users & symlinked SFTP chroot jails
+│       ├── wordpress_mgr.py    # WordPress installer & uninstaller
+│       ├── csf_mgr.py          # CSF Firewall management
+│       ├── modsec_mgr.py       # ModSecurity WAF installer & rule engine manager
+│       ├── security_mgr.py     # Input validation, path safety & DNS verification
+│       ├── settings_mgr.py     # Core server config editor & log viewer
+│       ├── cron_mgr.py         # Per-user cron job scheduling
+│       ├── backup_mgr.py       # Automated Backup Manager (Local, FTP, S3)
+│       ├── run_backup.py       # Scheduled backup runner
 │       ├── terminal_mgr.py     # Web-based root terminal via WebSockets
 │       ├── updater_mgr.py      # Git-based automated panel updater
-│       ├── wordpress_mgr.py    # WordPress installer & manager
+│       ├── forms.py            # CSRF-protected generic forms
+│       ├── lib/                # Modular Flask blueprints
+│       │   ├── routes_admin.py
+│       │   ├── routes_auth.py
+│       │   ├── routes_dashboard.py
+│       │   ├── routes_databases.py
+│       │   ├── routes_docker.py
+│       │   ├── routes_domains.py
+│       │   ├── routes_filemanager.py
+│       │   ├── routes_nextjs.py
+│       │   ├── routes_php.py
+│       │   ├── routes_system.py
+│       │   └── routes_wordpress.py
 │       ├── static/
 │       │   ├── logo.png        # Lite cPanel logo
 │       │   └── favicon.png     # Browser favicon
 │       └── templates/          # Jinja2 HTML templates
+│           ├── base.html
+│           ├── login.html
 │           ├── dashboard.html
+│           ├── traffic.html
 │           ├── domains.html
+│           ├── domain_logs.html
+│           ├── edit_config.html
+│           ├── php.html
+│           ├── nextjs.html
+│           ├── processes.html
+│           ├── docker.html
 │           ├── databases.html
 │           ├── mongodb.html
 │           ├── filemanager.html
 │           ├── ftp.html
-│           ├── firewall.html
-│           ├── modsecurity.html
 │           ├── wordpress.html
-│           ├── nextjs.html
-│           ├── terminal.html
 │           ├── cron.html
 │           ├── backups.html
+│           ├── firewall.html
+│           ├── modsecurity.html
+│           ├── terminal.html
 │           ├── settings.html
-│           └── login.html
+│           ├── admin_plans.html
+│           └── admin_users.html
 ├── screenshot.png
 └── README.md
 ```
@@ -333,8 +376,12 @@ Please follow [Conventional Commits](https://www.conventionalcommits.org/) for c
 ## Roadmap
 
 - [ ] Email server management (Postfix/Dovecot)
+- [ ] Built-in DNS management (Bind9/PowerDNS — see [dns_management_study.md](dns_management_study.md))
 - [x] Automated backups (scheduled tar/mysqldump with remote upload)
-- [x] Multi-user support with role-based access control
+- [x] Multi-user support with role-based access control & full account resource cleanup
+- [x] Multi-PHP Manager (PHP 7.0–8.5, per-domain switching, isolated updater & INI editor)
+- [x] Safe per-domain virtual host & Next.js app deletion with main domain protection
+- [x] Node.js & Next.js Process Manager (PM2 with NVM & boot resurrection)
 - [x] Let's Encrypt auto-renewal via cron
 - [x] Docker containerization support
 - [x] Web-based terminal (xterm.js integration)
