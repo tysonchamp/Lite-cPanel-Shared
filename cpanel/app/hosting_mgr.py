@@ -415,6 +415,14 @@ def allocate_nextjs_port(domain):
     
     return new_port
 
+def release_nextjs_port(domain):
+    """Release the allocated port for a Next.js domain."""
+    conn = _get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM nextjs_ports WHERE domain = ?", (domain,))
+    conn.commit()
+    conn.close()
+
 def get_docker_port(domain):
     """Retrieve the allocated port for a docker domain, if it exists."""
     conn = _get_conn()

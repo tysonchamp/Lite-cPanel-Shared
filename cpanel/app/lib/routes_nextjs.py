@@ -45,8 +45,12 @@ def nextjs():
                 flash(message, 'danger')
 
         elif action == 'delete':
-            domain = request.form.get('domain')
-            success, message = delete_nextjs_app(domain)
+            domain = (request.form.get('domain') or '').strip()
+            v, e = validate_input(domain, 'domain')
+            if not v:
+                flash(f"Validation failed: {e}", "danger")
+                return redirect(url_for('nextjs.nextjs'))
+            success, message = delete_nextjs_app(domain, session.get('role'), session.get('username'))
             if success:
                 flash(message, 'success')
             else:

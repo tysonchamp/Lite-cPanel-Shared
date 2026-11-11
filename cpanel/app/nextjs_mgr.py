@@ -1,7 +1,18 @@
 import os
 import subprocess
 import re
-from hosting_mgr import can_add_resource, add_user_resource, get_users
+from hosting_mgr import (
+    can_add_resource,
+    add_user_resource,
+    remove_user_resource,
+    get_users,
+    get_user_data,
+    get_owner_of_resource,
+    release_nextjs_port,
+)
+from security_mgr import validate_input
+
+WWW_BASE = '/var/www'
 
 def get_nextjs_apps(role='admin', username=None):
     """
@@ -264,38 +275,117 @@ def toggle_nextjs_app(domain, enable):
     else:
         return False, "Configuration not found for any web server."
 
-def delete_nextjs_app(domain):
-    """Deletes a Next.js proxy virtual host."""
-    deleted = []
-    errors = []
+def _resolve_nextjs_doc_root(domain, owner=None):
+    """Resolve the safe document root directory and whether it is a protected main web root."""
+    if owner:
+        from user_cleanup_mgr import resolve_safe_user_home
 
-    # Check Nginx
-    nginx_avail = f'/etc/nginx/sites-available/{domain}'
-    nginx_enabled = f'/etc/nginx/sites-enabled/{domain}'
-    if os.path.exists(nginx_avail):
+        user_home = resolve_safe_user_home(owner)
+        public_html = os.path.abspath(os.path.join(user_home, "public_html"))
+        user_data = get_user_data(owner)
+        if user_data and domain == user_data.get("main_domain"):
+            return public_html, True
+
+        doc_root = os.path.abspath(os.path.join(public_html, domain))
+        if os.path.dirname(doc_root) != public_html or os.path.basename(doc_root) != domain:
+            raise ValueError(f"Unsafe Next.js app directory path: {doc_root!r}")
+        return doc_root, False
+
+    www_base = os.path.abspath(WWW_BASE)
+    doc_root = os.path.abspath(os.path.join(www_base, domain))
+    if (
+        os.path.dirname(doc_root) != www_base
+        or os.path.basename(doc_root) != domain
+        or domain.lower() == "html"
+    ):
+        raise ValueError(f"Unsafe Next.js app directory path: {doc_root!r}")
+    return doc_root, False
+
+
+def delete_nextjs_app(domain, role='admin', username=None):
+    """Delete a Next.js proxy, its PM2 process, allocated port, and app directory."""
+    from user_cleanup_mgr import (
+        _is_path_within,
+        delete_domain_vhost_files,
+        delete_path_safely,
+        delete_pm2_processes,
+        reload_touched_webservers,
+    )
+
+    ok_domain, err_domain = validate_input(domain, 'domain')
+    if not ok_domain or '/' in domain or '..' in domain:
+        return False, f"Invalid domain: {err_domain}"
+
+    owner = get_owner_of_resource('nextjs_apps', domain)
+    if role == 'user':
+        if not username or owner != username:
+            return False, "Access denied: You do not own this Next.js app."
+
+    try:
+        doc_root, is_main_domain = _resolve_nextjs_doc_root(domain, owner=owner)
+    except ValueError as exc:
+        return False, str(exc)
+
+    warnings = []
+
+    # 1. Stop & delete matching PM2 process(es) before removing directory
+    def _matches_nextjs_pm2(proc):
+        name = proc.get("name", "") or ""
+        if name == domain:
+            return True
+        if is_main_domain:
+            return False
+        pm2_env = proc.get("pm2_env") or {}
+        return any(
+            _is_path_within(p, doc_root)
+            for p in (pm2_env.get("pm_cwd"), pm2_env.get("cwd"), pm2_env.get("pm_exec_path"))
+            if p
+        )
+
+    pm2_deleted = delete_pm2_processes(_matches_nextjs_pm2, warnings=warnings)
+
+    # 2. Delete Nginx/Apache vhosts, SSL certs, and logs, reloading modified services once
+    servers_deleted, apache_touched, nginx_touched, ssl_deleted = delete_domain_vhost_files(
+        domain, warnings=warnings
+    )
+    reload_touched_webservers(
+        apache_touched=apache_touched, nginx_touched=nginx_touched, warnings=warnings
+    )
+
+    # 3. Delete app directory (never delete /home/<user>/public_html for a user's main domain)
+    dir_deleted = False
+    if not is_main_domain:
         try:
-            if os.path.exists(nginx_enabled):
-                os.remove(nginx_enabled)
-            os.remove(nginx_avail)
-            subprocess.run(['systemctl', 'reload', 'nginx'], check=True)
-            deleted.append("Nginx")
-        except Exception as e:
-            errors.append(f"Nginx: {str(e)}")
+            dir_deleted = delete_path_safely(doc_root)
+        except Exception as exc:
+            warnings.append(f"Failed removing directory {doc_root}: {exc}")
 
-    # Check Apache
-    apache_avail = f'/etc/apache2/sites-available/{domain}.conf'
-    if os.path.exists(apache_avail):
-        try:
-            subprocess.run(['a2dissite', f"{domain}.conf"], check=True, capture_output=True)
-            os.remove(apache_avail)
-            subprocess.run(['systemctl', 'reload', 'apache2'], check=True)
-            deleted.append("Apache")
-        except Exception as e:
-            errors.append(f"Apache: {str(e)}")
+    # 4. Clean hosting tracking & port allocation
+    if owner:
+        remove_user_resource(owner, 'nextjs_apps', domain)
+    release_nextjs_port(domain)
 
-    if errors:
-        return False, f"Errors deleting Next.js app: {', '.join(errors)}"
-    elif deleted:
-        return True, f"Next.js proxy for {domain} deleted successfully from: {', '.join(deleted)}."
-    else:
+    if not (servers_deleted or ssl_deleted or pm2_deleted or dir_deleted or owner):
+        if warnings:
+            return False, f"Errors deleting Next.js app: {'; '.join(warnings)}"
         return False, "Configuration not found for any web server."
+
+    details = []
+    if servers_deleted:
+        details.append(f"web servers: {', '.join(servers_deleted)}")
+    if dir_deleted:
+        details.append(f"directory removed: {doc_root}")
+    elif is_main_domain:
+        details.append(f"main web root preserved: {doc_root}")
+    if pm2_deleted:
+        details.append(f"PM2 deleted: {', '.join(pm2_deleted)}")
+    if ssl_deleted:
+        details.append("SSL certificate removed")
+
+    msg = f"Next.js app for {domain} deleted successfully"
+    if details:
+        msg += f" ({'; '.join(details)})"
+    msg += "."
+    if warnings:
+        msg += f" Warnings: {'; '.join(warnings)}"
+    return True, msg

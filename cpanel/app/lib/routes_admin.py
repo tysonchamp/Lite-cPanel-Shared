@@ -1,7 +1,10 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 from auth import login_required, admin_required
 
-from hosting_mgr import get_plans, add_plan, delete_plan, get_users, add_user, delete_user, update_plan, update_user_plan
+from hosting_mgr import (
+    get_plans, add_plan, delete_plan, get_users, add_user,
+    delete_user_with_report, update_plan, update_user_plan,
+)
 from domains_mgr import add_virtual_host
 from ftp_mgr import create_ftp_user, toggle_ftp_user_status, check_pureftpd_installed
 
@@ -89,8 +92,6 @@ def admin_users():
                 ok, msg = update_user_plan(username, plan)
                 flash(msg, 'success' if ok else 'danger')
         elif action == 'delete':
-            from hosting_mgr import delete_user_with_report
-
             username = (request.form.get('username') or '').strip()
             ok, msg, report = delete_user_with_report(username)
             flash(msg, 'success' if ok else 'danger')

@@ -116,7 +116,7 @@ def _match_user_prefix(name, prefix):
 
 
 def _unlink_if_exists(path):
-    """Remove a file or symlink without following symlinks; return True if removed."""
+    """Remove a file, symlink, or directory tree safely without following top-level symlinks."""
     if os.path.lexists(path):
         if os.path.isdir(path) and not os.path.islink(path):
             shutil.rmtree(path, onerror=_handle_rmtree_readonly)
@@ -124,6 +124,9 @@ def _unlink_if_exists(path):
             os.unlink(path)
         return True
     return False
+
+
+delete_path_safely = _unlink_if_exists
 
 
 def _handle_rmtree_readonly(func, path, exc_info):
@@ -169,6 +172,70 @@ def _kill_user_processes(target_user, warnings):
         warnings.append(f"Process cleanup warning for {target_user}: {exc}")
 
 
+def delete_pm2_processes(predicate, warnings=None):
+    """Delete PM2 processes matching predicate(proc) and persist PM2 state."""
+    import process_mgr
+
+    warnings = warnings if warnings is not None else []
+    if not process_mgr.is_pm2_installed():
+        return []
+
+    pm2_cmd = process_mgr.get_pm2_cmd()
+    try:
+        processes = process_mgr.list_processes() or []
+    except Exception as exc:
+        warnings.append(f"Failed to list PM2 processes: {exc}")
+        return []
+
+    matched_targets = []
+    for proc in processes:
+        if not predicate(proc):
+            continue
+        name = proc.get("name", "") or ""
+        pm_id = proc.get("pm_id")
+        target = str(pm_id) if pm_id is not None else name
+        if target:
+            matched_targets.append((target, name or target))
+
+    if not matched_targets:
+        return []
+
+    env_root = os.environ.copy()
+    env_root["PM2_HOME"] = process_mgr.PM2_HOME
+    deleted = []
+
+    for target, label in matched_targets:
+        try:
+            res = subprocess.run([pm2_cmd, "delete", target], capture_output=True, text=True, env=env_root, timeout=15)
+            if res.returncode == 0:
+                deleted.append(label)
+            else:
+                ok, msg = process_mgr.manage_process("delete", label)
+                if ok:
+                    deleted.append(label)
+                else:
+                    warnings.append(f"PM2 delete failed for {label}: {msg}")
+        except Exception as exc:
+            warnings.append(f"PM2 delete error for {label}: {exc}")
+
+    if deleted:
+        try:
+            save_res = subprocess.run(
+                [pm2_cmd, "save", "--force"],
+                capture_output=True,
+                text=True,
+                env=env_root,
+                timeout=15,
+            )
+            if save_res.returncode != 0:
+                err = (save_res.stderr or save_res.stdout or "").strip()
+                warnings.append(f"PM2 save warning: {err}")
+        except Exception as exc:
+            warnings.append(f"PM2 save warning: {exc}")
+
+    return deleted
+
+
 def _cleanup_pm2_processes(username, domains, user_home, report):
     """Delete all PM2 processes owned by the user or running from their home directory."""
     import process_mgr
@@ -189,19 +256,10 @@ def _cleanup_pm2_processes(username, domains, user_home, report):
         except Exception as exc:
             report["warnings"].append(f"User PM2 daemon stop failed: {exc}")
 
-    try:
-        processes = process_mgr.list_processes() or []
-    except Exception as exc:
-        report["warnings"].append(f"Failed to list PM2 processes: {exc}")
-        return
-
-    matched_targets = []
-    for proc in processes:
+    def _matches_user(proc):
         name = proc.get("name", "") or ""
-        pm_id = proc.get("pm_id")
         pm2_env = proc.get("pm2_env") or {}
         nested_env = pm2_env.get("env") or {}
-
         path_candidates = [
             pm2_env.get("pm_cwd"),
             pm2_env.get("cwd"),
@@ -212,57 +270,15 @@ def _cleanup_pm2_processes(username, domains, user_home, report):
         ]
         env_user = pm2_env.get("USER") or nested_env.get("USER")
         env_home = pm2_env.get("HOME") or nested_env.get("HOME")
-
-        is_owner = (
+        return (
             name in domain_set
             or _match_user_prefix(name, username)
             or env_user == username
             or env_home == user_home
             or any(_is_path_within(p, user_home) for p in path_candidates if p)
         )
-        if is_owner:
-            target = str(pm_id) if pm_id is not None else name
-            if target:
-                matched_targets.append((target, name or target))
 
-    if not matched_targets:
-        return
-
-    env_root = os.environ.copy()
-    env_root["PM2_HOME"] = process_mgr.PM2_HOME
-    deleted_any = False
-
-    for target, label in matched_targets:
-        try:
-            res = subprocess.run([pm2_cmd, "delete", target], capture_output=True, text=True, env=env_root, timeout=15)
-            if res.returncode == 0:
-                deleted_any = True
-                report["pm2_processes"].append(label)
-            else:
-                # Fallback to process_mgr API if target differed
-                ok, msg = process_mgr.manage_process("delete", label)
-                if ok:
-                    deleted_any = True
-                    report["pm2_processes"].append(label)
-                else:
-                    report["warnings"].append(f"PM2 delete failed for {label}: {msg}")
-        except Exception as exc:
-            report["warnings"].append(f"PM2 delete error for {label}: {exc}")
-
-    if deleted_any:
-        try:
-            save_res = subprocess.run(
-                [pm2_cmd, "save", "--force"],
-                capture_output=True,
-                text=True,
-                env=env_root,
-                timeout=15,
-            )
-            if save_res.returncode != 0:
-                err = (save_res.stderr or save_res.stdout or "").strip()
-                report["warnings"].append(f"PM2 save warning: {err}")
-        except Exception as exc:
-            report["warnings"].append(f"PM2 save warning: {exc}")
+    report["pm2_processes"].extend(delete_pm2_processes(_matches_user, report["warnings"]))
 
 
 def _find_compose_dirs(user_home, max_depth=4):
@@ -502,80 +518,82 @@ def _cleanup_docker_resources(username, domains, user_home, report):
             pass
 
 
-def _cleanup_domains_and_ssl(domains, report):
-    """Remove Apache/Nginx vhosts, SSL certs, and logs for user domains, reloading once."""
+def delete_domain_vhost_files(domain, warnings=None):
+    """Remove Nginx/Apache vhosts, Certbot certs, and logs for a validated domain."""
+    if not _is_valid_domain_target(domain):
+        return [], False, False, False
+
+    warnings = warnings if warnings is not None else []
+    servers_deleted = []
     apache_touched = False
     nginx_touched = False
+    ssl_deleted = False
 
-    for domain in domains:
-        domain_removed = False
+    nginx_enabled = os.path.join(NGINX_SITES_ENABLED, domain)
+    nginx_avail = os.path.join(NGINX_SITES_AVAIL, domain)
+    if _unlink_if_exists(nginx_enabled):
+        nginx_touched = True
+    if _unlink_if_exists(nginx_avail):
+        nginx_touched = True
+    if nginx_touched:
+        servers_deleted.append("Nginx")
 
-        # Nginx vhost symlink & config file
-        nginx_enabled = os.path.join(NGINX_SITES_ENABLED, domain)
-        nginx_avail = os.path.join(NGINX_SITES_AVAIL, domain)
-        if _unlink_if_exists(nginx_enabled):
-            nginx_touched = True
-            domain_removed = True
-        if _unlink_if_exists(nginx_avail):
-            nginx_touched = True
-            domain_removed = True
+    for suffix in (".conf", "-le-ssl.conf"):
+        conf_name = f"{domain}{suffix}"
+        apache_avail = os.path.join(APACHE_SITES_AVAIL, conf_name)
+        apache_enabled = os.path.join(APACHE_SITES_ENABLED, conf_name)
+        if os.path.lexists(apache_enabled) or os.path.lexists(apache_avail):
+            try:
+                subprocess.run(["a2dissite", conf_name], capture_output=True, text=True, timeout=15)
+            except FileNotFoundError:
+                pass
+            except Exception as exc:
+                warnings.append(f"a2dissite warning for {conf_name}: {exc}")
+            _unlink_if_exists(apache_enabled)
+            _unlink_if_exists(apache_avail)
+            apache_touched = True
+    if apache_touched:
+        servers_deleted.append("Apache")
 
-        # Apache standard & Let's Encrypt SSL virtual hosts
-        for suffix in (".conf", "-le-ssl.conf"):
-            conf_name = f"{domain}{suffix}"
-            apache_avail = os.path.join(APACHE_SITES_AVAIL, conf_name)
-            apache_enabled = os.path.join(APACHE_SITES_ENABLED, conf_name)
-            if os.path.lexists(apache_enabled) or os.path.lexists(apache_avail):
-                try:
-                    subprocess.run(["a2dissite", conf_name], capture_output=True, text=True, timeout=15)
-                except FileNotFoundError:
-                    pass
-                except Exception as exc:
-                    report["warnings"].append(f"a2dissite warning for {conf_name}: {exc}")
-                _unlink_if_exists(apache_enabled)
-                _unlink_if_exists(apache_avail)
-                apache_touched = True
-                domain_removed = True
+    le_live = os.path.join(LETSENCRYPT_DIR, "live", domain)
+    le_archive = os.path.join(LETSENCRYPT_DIR, "archive", domain)
+    le_renewal = os.path.join(LETSENCRYPT_DIR, "renewal", f"{domain}.conf")
+    if any(os.path.lexists(p) for p in (le_live, le_archive, le_renewal)):
+        if shutil.which("certbot"):
+            try:
+                c_res = subprocess.run(
+                    ["certbot", "delete", "--cert-name", domain, "--non-interactive"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if c_res.returncode != 0:
+                    err = (c_res.stderr or c_res.stdout or "").strip()
+                    warnings.append(f"Certbot delete warning for {domain}: {err}")
+            except Exception as exc:
+                warnings.append(f"Certbot delete error for {domain}: {exc}")
+        for p in (le_live, le_archive, le_renewal):
+            _unlink_if_exists(p)
+        ssl_deleted = True
 
-        # Certbot SSL certificates for exact domain
-        le_live = os.path.join(LETSENCRYPT_DIR, "live", domain)
-        le_archive = os.path.join(LETSENCRYPT_DIR, "archive", domain)
-        le_renewal = os.path.join(LETSENCRYPT_DIR, "renewal", f"{domain}.conf")
-        if any(os.path.lexists(p) for p in (le_live, le_archive, le_renewal)):
-            if shutil.which("certbot"):
-                try:
-                    c_res = subprocess.run(
-                        ["certbot", "delete", "--cert-name", domain, "--non-interactive"],
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                    )
-                    if c_res.returncode != 0:
-                        err = (c_res.stderr or c_res.stdout or "").strip()
-                        report["warnings"].append(f"Certbot delete warning for {domain}: {err}")
-                except Exception as exc:
-                    report["warnings"].append(f"Certbot delete error for {domain}: {exc}")
-            for p in (le_live, le_archive, le_renewal):
-                _unlink_if_exists(p)
-            report["ssl_certs"].append(domain)
-            domain_removed = True
+    for log_path in (
+        os.path.join(NGINX_LOG_DIR, f"{domain}_access.log"),
+        os.path.join(NGINX_LOG_DIR, f"{domain}_error.log"),
+        os.path.join(NGINX_LOG_DIR, f"{domain}_docker_access.log"),
+        os.path.join(NGINX_LOG_DIR, f"{domain}_docker_error.log"),
+        os.path.join(APACHE_LOG_DIR, f"{domain}_access.log"),
+        os.path.join(APACHE_LOG_DIR, f"{domain}_error.log"),
+        os.path.join(APACHE_LOG_DIR, f"{domain}_ssl_access.log"),
+        os.path.join(APACHE_LOG_DIR, f"{domain}_ssl_error.log"),
+    ):
+        _unlink_if_exists(log_path)
 
-        # Domain webserver logs
-        for log_path in (
-            os.path.join(NGINX_LOG_DIR, f"{domain}_access.log"),
-            os.path.join(NGINX_LOG_DIR, f"{domain}_error.log"),
-            os.path.join(NGINX_LOG_DIR, f"{domain}_docker_access.log"),
-            os.path.join(NGINX_LOG_DIR, f"{domain}_docker_error.log"),
-            os.path.join(APACHE_LOG_DIR, f"{domain}_access.log"),
-            os.path.join(APACHE_LOG_DIR, f"{domain}_error.log"),
-            os.path.join(APACHE_LOG_DIR, f"{domain}_ssl_access.log"),
-            os.path.join(APACHE_LOG_DIR, f"{domain}_ssl_error.log"),
-        ):
-            _unlink_if_exists(log_path)
+    return servers_deleted, apache_touched, nginx_touched, ssl_deleted
 
-        if domain_removed:
-            report["domains"].append(domain)
 
+def reload_touched_webservers(apache_touched=False, nginx_touched=False, warnings=None):
+    """Reload Apache and/or Nginx once after virtual host modifications."""
+    warnings = warnings if warnings is not None else []
     for touched, svc in ((apache_touched, "apache2"), (nginx_touched, "nginx")):
         if not touched:
             continue
@@ -583,11 +601,28 @@ def _cleanup_domains_and_ssl(domains, report):
             res = subprocess.run(["systemctl", "reload", svc], capture_output=True, text=True, timeout=20)
             if res.returncode != 0:
                 err = (res.stderr or res.stdout or "").strip()
-                report["warnings"].append(f"Service reload warning ({svc}): {err}")
+                warnings.append(f"Service reload warning ({svc}): {err}")
         except FileNotFoundError:
             pass
         except Exception as exc:
-            report["warnings"].append(f"Service reload error ({svc}): {exc}")
+            warnings.append(f"Service reload error ({svc}): {exc}")
+
+
+def _cleanup_domains_and_ssl(domains, report):
+    """Remove Apache/Nginx vhosts, SSL certs, and logs for user domains, reloading once."""
+    apache_touched = False
+    nginx_touched = False
+
+    for domain in domains:
+        servers_deleted, a_hit, n_hit, ssl_deleted = delete_domain_vhost_files(domain, report["warnings"])
+        apache_touched = apache_touched or a_hit
+        nginx_touched = nginx_touched or n_hit
+        if ssl_deleted:
+            report["ssl_certs"].append(domain)
+        if servers_deleted or ssl_deleted:
+            report["domains"].append(domain)
+
+    reload_touched_webservers(apache_touched=apache_touched, nginx_touched=nginx_touched, warnings=report["warnings"])
 
 
 def _cleanup_mysql_resources(username, tracked_dbs, report):
