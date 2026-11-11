@@ -47,7 +47,13 @@
                             {% for vhost in vhosts %}
                             <tr>
                                 <td class="align-middle fw-bold">
-                                    {{ vhost.domain }}<br>
+                                    {{ vhost.domain }}
+                                    {% if vhost.is_main_domain %}
+                                        <span class="badge bg-primary ms-1">Main Domain{% if session.get('role') == 'admin' and vhost.owner %} ({{ vhost.owner }}){% endif %}</span>
+                                    {% elif session.get('role') == 'admin' and vhost.owner %}
+                                        <span class="badge bg-light text-dark border ms-1">{{ vhost.owner }}</span>
+                                    {% endif %}
+                                    <br>
                                     <small class="text-muted">
                                         {% for srv in vhost.servers %}
                                             <span class="badge bg-secondary">{{ srv }}</span>
@@ -110,6 +116,18 @@
                                             <button type="submit" class="btn btn-sm btn-outline-primary" title="Generate SSL"><i class="fas fa-shield-alt"></i></button>
                                             {% endif %}
                                         </form>
+
+                                        <!-- Delete Domain -->
+                                        {% if vhost.is_main_domain %}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Primary main domain cannot be deleted"><i class="fas fa-lock"></i></button>
+                                        {% else %}
+                                        <form method="POST" action="{{ url_for('domains.domains') }}" class="mb-0" data-domain="{{ vhost.domain }}" onsubmit="return confirm('PERMANENTLY delete domain ' + this.dataset.domain + '? This will delete its web server configs, SSL certificates, logs, and all files in its document root!');">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="domain" value="{{ vhost.domain }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Domain"><i class="fas fa-trash"></i></button>
+                                        </form>
+                                        {% endif %}
                                     </div>
                                 </td>
                             </tr>

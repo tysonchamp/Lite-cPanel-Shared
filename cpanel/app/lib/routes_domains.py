@@ -5,7 +5,7 @@ import os
 import subprocess
 import logging
 
-from domains_mgr import get_virtual_hosts, add_virtual_host, toggle_virtual_host, get_port80_webserver
+from domains_mgr import get_virtual_hosts, add_virtual_host, toggle_virtual_host, delete_virtual_host, get_port80_webserver
 from hosting_mgr import can_add_resource, add_user_resource, remove_user_resource
 
 domains_bp = Blueprint('domains', __name__)
@@ -49,6 +49,16 @@ def domains():
                 flash(message, 'success')
             else:
                 flash(message, 'danger')
+
+        elif action == 'delete':
+            domain = (request.form.get('domain') or '').strip()
+            v, e = validate_input(domain, 'domain')
+            if not v:
+                flash(f"Validation failed: {e}", "danger")
+                return redirect(url_for('domains.domains'))
+
+            success, message = delete_virtual_host(domain, session.get('role'), session.get('username'))
+            flash(message, 'success' if success else 'danger')
 
         elif action == 'ssl_generate':
             domain = request.form.get('domain')
