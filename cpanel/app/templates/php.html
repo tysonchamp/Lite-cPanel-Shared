@@ -275,6 +275,7 @@
                     <div class="progress" style="height: 22px;">
                         <div id="phpProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
                     </div>
+                    <div id="phpProgressDetail" class="small text-muted font-monospace mt-2 text-truncate"></div>
                 </div>
                 <div id="phpProgressAlert" class="alert mt-3" style="display: none;"></div>
                 {% else %}
@@ -535,6 +536,7 @@
             const container = document.getElementById('phpProgressContainer');
             const text = document.getElementById('phpProgressText');
             const bar = document.getElementById('phpProgressBar');
+            const detail = document.getElementById('phpProgressDetail');
             const alertDiv = document.getElementById('phpProgressAlert');
 
             btn.disabled = true;
@@ -544,8 +546,38 @@
             bar.style.width = '5%';
             bar.innerText = '5%';
             text.innerText = 'Starting PHP installation...';
+            if (detail) detail.textContent = '';
             bar.classList.remove('bg-danger', 'bg-success');
             bar.classList.add('progress-bar-animated');
+
+            let completed = false;
+            const handleEvent = (data) => {
+                bar.style.width = data.progress + "%";
+                bar.innerText = data.progress + "%";
+                text.innerText = data.message;
+                if (detail && data.detail) {
+                    detail.textContent = data.detail;
+                }
+
+                if (data.error) {
+                    completed = true;
+                    bar.classList.add('bg-danger');
+                    bar.classList.remove('progress-bar-animated');
+                    alertDiv.className = 'alert alert-danger mt-3';
+                    alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
+                    alertDiv.appendChild(document.createTextNode(data.message));
+                    alertDiv.style.display = 'block';
+                } else if (data.success) {
+                    completed = true;
+                    bar.classList.add('bg-success');
+                    bar.classList.remove('progress-bar-animated');
+                    alertDiv.className = 'alert alert-success mt-3';
+                    alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ';
+                    alertDiv.appendChild(document.createTextNode(data.message + ' Reloading...'));
+                    alertDiv.style.display = 'block';
+                    setTimeout(() => { window.location.href = "{{ url_for('php.php_manager', tab='versions') }}"; }, 1800);
+                }
+            };
 
             try {
                 const formData = new FormData(installPhpForm);
@@ -554,8 +586,12 @@
                     body: formData
                 });
 
-                if (!response.ok && response.headers.get('content-type')?.indexOf('application/x-ndjson') === -1) {
+                const contentType = response.headers.get('content-type') || '';
+                if (!response.ok && !contentType.includes('application/x-ndjson')) {
                     throw new Error("Server returned HTTP " + response.status);
+                }
+                if (!contentType.includes('application/x-ndjson')) {
+                    throw new Error("Unexpected response from server (session may have expired).");
                 }
 
                 const reader = response.body.getReader();
@@ -572,28 +608,22 @@
 
                     for (const line of lines) {
                         if (!line.trim()) continue;
-                        const data = JSON.parse(line);
-                        bar.style.width = data.progress + "%";
-                        bar.innerText = data.progress + "%";
-                        text.innerText = data.message;
-
-                        if (data.error) {
-                            bar.classList.add('bg-danger');
-                            bar.classList.remove('progress-bar-animated');
-                            alertDiv.className = 'alert alert-danger mt-3';
-                            alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
-                            alertDiv.appendChild(document.createTextNode(data.message));
-                            alertDiv.style.display = 'block';
-                        } else if (data.success) {
-                            bar.classList.add('bg-success');
-                            bar.classList.remove('progress-bar-animated');
-                            alertDiv.className = 'alert alert-success mt-3';
-                            alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ';
-                            alertDiv.appendChild(document.createTextNode(data.message + ' Reloading...'));
-                            alertDiv.style.display = 'block';
-                            setTimeout(() => { window.location.href = "{{ url_for('php.php_manager', tab='versions') }}"; }, 1800);
-                        }
+                        handleEvent(JSON.parse(line));
                     }
+                }
+
+                buffer += decoder.decode();
+                if (buffer.trim()) {
+                    handleEvent(JSON.parse(buffer.trim()));
+                }
+
+                if (!completed) {
+                    bar.classList.add('bg-danger');
+                    bar.classList.remove('progress-bar-animated');
+                    alertDiv.className = 'alert alert-danger mt-3';
+                    alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
+                    alertDiv.appendChild(document.createTextNode("Installation stream ended before completion (" + bar.innerText + "). Please retry."));
+                    alertDiv.style.display = 'block';
                 }
             } catch (err) {
                 bar.classList.add('bg-danger');

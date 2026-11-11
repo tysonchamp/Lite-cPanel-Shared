@@ -2,7 +2,10 @@ import os
 import re
 import glob
 import json
+import time
+import queue
 import shutil
+import threading
 import subprocess
 from domains_mgr import get_virtual_hosts
 
@@ -550,23 +553,29 @@ def set_default_php_version(version):
             mod_php_load = f'/etc/apache2/mods-available/php{version}.load'
             enabled_fpm_confs = glob.glob('/etc/apache2/conf-enabled/php*-fpm.conf')
 
-            if os.path.exists(fpm_conf) and (enabled_fpm_confs or not os.path.exists(mod_php_load)):
-                subprocess.run(['a2enmod', 'proxy', 'proxy_fcgi', 'setenvif'], capture_output=True)
+            if os.path.exists(fpm_conf):
+                subprocess.run(['a2enmod', 'proxy', 'proxy_fcgi', 'setenvif'], capture_output=True, stdin=subprocess.DEVNULL)
+                for m in glob.glob('/etc/apache2/mods-enabled/php*.load'):
+                    mname = os.path.basename(m).replace('.load', '')
+                    subprocess.run(['a2dismod', mname], capture_output=True, stdin=subprocess.DEVNULL)
                 for c in enabled_fpm_confs:
                     cname = os.path.basename(c).replace('.conf', '')
                     if cname != f'php{version}-fpm':
-                        subprocess.run(['a2disconf', cname], capture_output=True)
-                subprocess.run(['a2enconf', f'php{version}-fpm'], capture_output=True)
+                        subprocess.run(['a2disconf', cname], capture_output=True, stdin=subprocess.DEVNULL)
+                subprocess.run(['a2enconf', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL)
             elif os.path.exists(mod_php_load):
+                for c in enabled_fpm_confs:
+                    cname = os.path.basename(c).replace('.conf', '')
+                    subprocess.run(['a2disconf', cname], capture_output=True, stdin=subprocess.DEVNULL)
                 for m in glob.glob('/etc/apache2/mods-enabled/php*.load'):
                     mname = os.path.basename(m).replace('.load', '')
                     if mname != f'php{version}':
-                        subprocess.run(['a2dismod', mname], capture_output=True)
-                subprocess.run(['a2enmod', f'php{version}'], capture_output=True)
+                        subprocess.run(['a2dismod', mname], capture_output=True, stdin=subprocess.DEVNULL)
+                subprocess.run(['a2enmod', f'php{version}'], capture_output=True, stdin=subprocess.DEVNULL)
 
-            test_a = subprocess.run(['apache2ctl', 'configtest'], capture_output=True, text=True)
+            test_a = subprocess.run(['apache2ctl', 'configtest'], capture_output=True, text=True, stdin=subprocess.DEVNULL)
             if test_a.returncode == 0:
-                subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True)
+                subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True, stdin=subprocess.DEVNULL)
 
         default_nginx = '/etc/nginx/sites-available/default'
         if os.path.exists(default_nginx) and installed[version]['has_fpm']:
@@ -607,65 +616,280 @@ def manage_php_fpm_service(version, action):
         return False, f"Error managing {svc}: {str(e)}"
 
 
+_ONDREJ_KEY_URL = 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C'
+_ONDREJ_KEYRING_PATH = '/etc/apt/keyrings/ondrej-php.asc'
+_ONDREJ_LIST_PATH = '/etc/apt/sources.list.d/ondrej-php.list'
+
+_SURY_KEY_URL = 'https://packages.sury.org/php/apt.gpg'
+_SURY_KEYRING_PATH = '/etc/apt/keyrings/sury-php.gpg'
+_SURY_LIST_PATH = '/etc/apt/sources.list.d/php.list'
+
+_APT_COMMON_OPTS = [
+    '-o', 'DPkg::Lock::Timeout=60',
+    '-o', 'Acquire::http::Timeout=25',
+    '-o', 'Acquire::https::Timeout=25',
+    '-o', 'Acquire::Retries=2',
+]
+
+_APT_INSTALL_OPTS = _APT_COMMON_OPTS + [
+    '-o', 'Dpkg::Options::=--force-confdef',
+    '-o', 'Dpkg::Options::=--force-confold',
+]
+
+
+def _non_interactive_env():
+    env = os.environ.copy()
+    env['DEBIAN_FRONTEND'] = 'noninteractive'
+    env['NEEDRESTART_MODE'] = 'a'
+    env['NEEDRESTART_SUSPEND'] = '1'
+    env['APT_LISTCHANGES_FRONTEND'] = 'none'
+    env['UCF_FORCE_CONFFOLD'] = '1'
+    return env
+
+
 def _apt_pkg_exists(pkg_name):
-    res = subprocess.run(['apt-cache', 'show', pkg_name], capture_output=True, text=True)
+    res = subprocess.run(
+        ['apt-cache', 'show', pkg_name],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=15
+    )
     return res.returncode == 0 and bool(res.stdout.strip())
 
 
-def _detect_os_id():
+def _detect_os_info():
+    """Return {'id': ..., 'id_like': ..., 'codename': ...} from /etc/os-release."""
+    info = {}
     if os.path.exists('/etc/os-release'):
         try:
             with open('/etc/os-release', 'r') as f:
                 for line in f:
-                    if line.startswith('ID='):
-                        return line.split('=', 1)[1].strip().strip('"').lower()
+                    line = line.strip()
+                    if '=' not in line or line.startswith('#'):
+                        continue
+                    k, v = line.split('=', 1)
+                    info[k.strip()] = v.strip().strip('"').strip("'")
         except Exception:
             pass
-    return 'ubuntu'
+
+    os_id = info.get('ID', 'ubuntu').lower()
+    id_like = info.get('ID_LIKE', '').lower()
+    codename = info.get('UBUNTU_CODENAME') or info.get('VERSION_CODENAME') or ''
+    if not codename and shutil.which('lsb_release'):
+        try:
+            codename = subprocess.run(
+                ['lsb_release', '-sc'],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=10
+            ).stdout.strip()
+        except Exception:
+            codename = ''
+    if not codename:
+        codename = 'bookworm' if os_id == 'debian' else 'noble'
+
+    return {'id': os_id, 'id_like': id_like, 'codename': codename}
+
+
+def _curl_fetch(url, timeout=25):
+    """Fetch URL content via curl, falling back cleanly to IPv4 if needed."""
+    last_err = ''
+    for extra in ([], ['-4']):
+        try:
+            res = subprocess.run(
+                ['curl', '-fsSL', '--connect-timeout', '8', '--max-time', str(timeout)] + extra + [url],
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 10
+            )
+            if res.returncode == 0 and res.stdout:
+                return True, res.stdout, None
+            last_err = res.stderr.decode('utf-8', errors='replace').strip() or f"curl exited with {res.returncode}"
+        except subprocess.TimeoutExpired:
+            last_err = f"Timed out fetching {url}"
+        except Exception as e:
+            last_err = str(e)
+    return False, b'', last_err
+
+
+def _has_valid_repo_source(os_id):
+    """Verify an existing Ondrej/Sury repo file is non-empty and references its keyring if applicable."""
+    if os_id == 'debian':
+        if not os.path.exists(_SURY_LIST_PATH) or not os.path.exists(_SURY_KEYRING_PATH):
+            return False
+        try:
+            with open(_SURY_LIST_PATH, 'r') as f:
+                content = f.read()
+            return os.path.getsize(_SURY_KEYRING_PATH) > 0 and 'packages.sury.org' in content
+        except Exception:
+            return False
+
+    for path in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
+        try:
+            with open(path, 'r') as f:
+                content = f.read()
+            lowered = content.lower()
+            if 'ondrej' not in lowered or 'php' not in lowered:
+                continue
+            if path.endswith('.sources') and ('uris:' not in lowered or 'signed-by:' not in lowered):
+                continue
+            if _ONDREJ_KEYRING_PATH in content and (
+                not os.path.exists(_ONDREJ_KEYRING_PATH) or os.path.getsize(_ONDREJ_KEYRING_PATH) == 0
+            ):
+                continue
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def _ensure_php_repository(env):
-    """Ensure ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian) is configured."""
-    os_id = _detect_os_id()
+    """
+    Configure ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian) directly over HTTPS
+    without interactive prompts or keyserver HKP hangs.
+    """
+    os_info = _detect_os_info()
+    os_id = os_info['id']
+    codename = os_info['codename']
+
     if os_id == 'debian':
-        if os.path.exists('/etc/apt/sources.list.d/php.list'):
+        if _has_valid_repo_source('debian'):
             return True, None
-        subprocess.run(
-            ['apt-get', 'install', '-y', 'apt-transport-https', 'lsb-release', 'ca-certificates', 'curl', 'gnupg'],
-            capture_output=True, text=True, env=env
-        )
-        codename = subprocess.run(['lsb_release', '-sc'], capture_output=True, text=True).stdout.strip() or 'bookworm'
-        os.makedirs('/etc/apt/keyrings', exist_ok=True)
-        dl = subprocess.run(
-            ['curl', '-fsSL', '-o', '/etc/apt/keyrings/sury-php.gpg', 'https://packages.sury.org/php/apt.gpg'],
-            capture_output=True, text=True
-        )
-        if dl.returncode != 0:
-            return False, f"Failed to download Sury PHP GPG key: {dl.stderr.strip()}"
-        with open('/etc/apt/sources.list.d/php.list', 'w') as f:
-            f.write(f"deb [signed-by=/etc/apt/keyrings/sury-php.gpg] https://packages.sury.org/php/ {codename} main\n")
+        os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
+        ok, key_bytes, err = _curl_fetch(_SURY_KEY_URL)
+        if not ok:
+            return False, f"Failed to download Sury PHP GPG key: {err}"
+        with open(_SURY_KEYRING_PATH, 'wb') as f:
+            f.write(key_bytes)
+        os.chmod(_SURY_KEYRING_PATH, 0o644)
+        with open(_SURY_LIST_PATH, 'w') as f:
+            f.write(f"deb [signed-by={_SURY_KEYRING_PATH}] https://packages.sury.org/php/ {codename} main\n")
+        os.chmod(_SURY_LIST_PATH, 0o644)
         return True, None
 
     # Ubuntu / derivatives
-    if glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
+    if _has_valid_repo_source('ubuntu'):
         return True, None
-    if not shutil.which('add-apt-repository'):
-        subprocess.run(['apt-get', 'install', '-y', 'software-properties-common'], capture_output=True, text=True, env=env)
-    res = subprocess.run(['add-apt-repository', '-y', 'ppa:ondrej/php'], capture_output=True, text=True, env=env)
-    if res.returncode != 0:
-        return False, f"Failed to add ppa:ondrej/php: {res.stderr.strip() or res.stdout.strip()}"
-    return True, None
+
+    os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
+    ok, key_bytes, err = _curl_fetch(_ONDREJ_KEY_URL)
+    if ok and b'BEGIN PGP PUBLIC KEY BLOCK' in key_bytes:
+        with open(_ONDREJ_KEYRING_PATH, 'wb') as f:
+            f.write(key_bytes)
+        os.chmod(_ONDREJ_KEYRING_PATH, 0o644)
+        with open(_ONDREJ_LIST_PATH, 'w') as f:
+            f.write(f"deb [signed-by={_ONDREJ_KEYRING_PATH}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu {codename} main\n")
+        os.chmod(_ONDREJ_LIST_PATH, 0o644)
+        return True, None
+
+    # Fallback: non-interactive add-apt-repository with --no-update and strict timeout
+    if shutil.which('add-apt-repository'):
+        try:
+            res = subprocess.run(
+                ['add-apt-repository', '-y', '--no-update', 'ppa:ondrej/php'],
+                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=90
+            )
+            if res.returncode == 0:
+                return True, None
+            err = res.stderr.strip() or res.stdout.strip() or err
+        except subprocess.TimeoutExpired:
+            err = "add-apt-repository timed out after 90s"
+        except Exception as e:
+            err = str(e)
+
+    return False, f"Failed to configure ondrej/php repository: {err}"
+
+
+def _run_cmd_streaming(cmd, env=None, timeout=600):
+    """
+    Execute a command non-interactively and yield live events:
+    ('line', text), ('tick', None), or ('done', (returncode, tail_lines)).
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+        errors='replace',
+    )
+    q = queue.Queue()
+
+    def _reader():
+        try:
+            for raw in proc.stdout:
+                line = raw.strip()
+                if line:
+                    q.put(('line', line))
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            q.put(('eof', None))
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+
+    tail = []
+    deadline = time.monotonic() + timeout
+
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    pass
+                raise subprocess.TimeoutExpired(cmd, timeout)
+
+            try:
+                kind, payload = q.get(timeout=min(2.0, remaining))
+            except queue.Empty:
+                yield ('tick', None)
+                continue
+
+            if kind == 'eof':
+                break
+
+            tail.append(payload)
+            if len(tail) > 25:
+                tail.pop(0)
+            yield ('line', payload)
+
+        rc = proc.wait(timeout=15)
+        t.join(timeout=2)
+        yield ('done', (rc, tail))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+
+
+def _restore_default_php_alternatives(version):
+    """Restore update-alternatives symlinks to `version` after installing another PHP version."""
+    for tool in ('php', 'phar', 'phar.phar', 'phpize', 'php-config'):
+        target_bin = f'/usr/bin/{tool}{version}'
+        if os.path.exists(target_bin):
+            subprocess.run(
+                ['update-alternatives', '--set', tool, target_bin],
+                capture_output=True, stdin=subprocess.DEVNULL
+            )
 
 
 def install_php_generator(version, extensions=None):
     """Generator for live-streaming a new PHP version installation (admin-only)."""
-    def emit(progress, message, error=False, success=False):
-        return json.dumps({
+    def emit(progress, message, error=False, success=False, detail=''):
+        payload = {
             'progress': progress,
             'message': message,
             'error': error,
             'success': success,
-        }) + "\n"
+        }
+        if detail:
+            payload['detail'] = detail
+        return json.dumps(payload) + "\n"
 
     if version not in SUPPORTED_PHP_VERSIONS:
         yield emit(100, f"Unsupported PHP version: {version}", error=True)
@@ -680,26 +904,49 @@ def install_php_generator(version, extensions=None):
         requested_exts = list(DEFAULT_CORE_EXTENSIONS)
 
     try:
-        env = os.environ.copy()
-        env['DEBIAN_FRONTEND'] = 'noninteractive'
+        env = _non_interactive_env()
+        prev_default = get_default_php_version()
 
         yield emit(10, f"Checking package availability for PHP {version}...")
-        subprocess.run(['apt-get', 'update', '-y'], capture_output=True, text=True, env=env)
 
         if not _apt_pkg_exists(f'php{version}-fpm'):
-            yield emit(20, "Configuring PHP repository (ondrej/php)...")
+            yield emit(20, "Configuring PHP repository (ondrej/php / Sury)...")
             ok, err = _ensure_php_repository(env)
             if not ok:
                 yield emit(20, err, error=True)
                 return
-            yield emit(30, "Refreshing package lists...")
-            upd = subprocess.run(['apt-get', 'update', '-y'], capture_output=True, text=True, env=env)
-            if upd.returncode != 0:
-                yield emit(30, f"apt-get update failed: {upd.stderr.strip()}", error=True)
-                return
+
+        yield emit(28, "Refreshing APT package lists...")
+        apt_ok = False
+        apt_err = ''
+        for force_v4 in (False, True):
+            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+            update_cmd = ['apt-get', 'update', '-y'] + _APT_COMMON_OPTS + extra_v4
+            prog = 28
+            rc = 1
+            tail = []
+            for ev, data in _run_cmd_streaming(update_cmd, env=env, timeout=180):
+                if ev == 'line':
+                    prog = min(40, prog + 1)
+                    yield emit(prog, "Refreshing APT package lists...", detail=data)
+                elif ev == 'tick':
+                    prog = min(40, prog + 1)
+                    yield emit(prog, "Refreshing APT package lists...")
+                elif ev == 'done':
+                    rc, tail = data
+            if rc == 0:
+                apt_ok = True
+                break
+            apt_err = '; '.join(tail[-3:]) or f"apt-get update exited with {rc}"
+            if not force_v4:
+                yield emit(30, "Retrying APT refresh over IPv4...", detail=apt_err)
+
+        if not apt_ok and not _apt_pkg_exists(f'php{version}-fpm'):
+            yield emit(30, f"apt-get update failed: {apt_err}", error=True)
+            return
 
         if not _apt_pkg_exists(f'php{version}-fpm'):
-            yield emit(30, f"Package php{version}-fpm is not available for this OS release.", error=True)
+            yield emit(40, f"Package php{version}-fpm is not available for this OS release.", error=True)
             return
 
         packages = [f'php{version}-fpm', f'php{version}-cli', f'php{version}-common']
@@ -711,31 +958,50 @@ def install_php_generator(version, extensions=None):
                 packages.append(pkg)
 
         yield emit(45, f"Installing PHP {version} FPM, CLI, and {len(packages) - 3} extensions...")
-        res = subprocess.run(
-            ['apt-get', 'install', '-y'] + packages,
-            capture_output=True, text=True, env=env
-        )
-        if res.returncode != 0:
-            yield emit(45, f"Installation failed: {res.stderr.strip() or res.stdout.strip()}", error=True)
+        install_cmd = ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + packages
+        prog = 45
+        rc = 1
+        tail = []
+        last_detail = ''
+        for ev, data in _run_cmd_streaming(install_cmd, env=env, timeout=600):
+            if ev == 'line':
+                last_detail = data
+                prog = min(84, prog + 1)
+                yield emit(prog, f"Installing PHP {version} packages...", detail=data)
+            elif ev == 'tick':
+                prog = min(84, prog + 1)
+                yield emit(prog, f"Installing PHP {version} packages...", detail=last_detail)
+            elif ev == 'done':
+                rc, tail = data
+
+        if rc != 0:
+            err_detail = '; '.join(tail[-4:]) or f"apt-get install exited with {rc}"
+            yield emit(prog, f"Installation failed: {err_detail}", error=True)
             return
 
-        yield emit(80, f"Enabling and starting php{version}-fpm service...")
-        subprocess.run(['systemctl', 'enable', f'php{version}-fpm'], capture_output=True, text=True)
-        start_res = subprocess.run(['systemctl', 'start', f'php{version}-fpm'], capture_output=True, text=True)
+        # Keep existing CLI default PHP intact when adding another PHP version
+        if prev_default and prev_default != version and get_default_php_version() != prev_default:
+            _restore_default_php_alternatives(prev_default)
+
+        yield emit(88, f"Enabling and starting php{version}-fpm service...")
+        subprocess.run(['systemctl', 'enable', f'php{version}-fpm'], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
+        start_res = subprocess.run(['systemctl', 'start', f'php{version}-fpm'], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         if start_res.returncode != 0:
-            yield emit(80, f"Installed, but failed to start php{version}-fpm: {start_res.stderr.strip()}", error=True)
+            yield emit(88, f"Installed, but failed to start php{version}-fpm: {start_res.stderr.strip()}", error=True)
             return
 
         if shutil.which('a2enmod'):
-            yield emit(90, "Ensuring Apache proxy_fcgi integration is enabled...")
-            subprocess.run(['a2enmod', 'proxy', 'proxy_fcgi', 'setenvif'], capture_output=True)
+            yield emit(94, "Ensuring Apache proxy_fcgi integration is enabled...")
+            subprocess.run(['a2enmod', 'proxy', 'proxy_fcgi', 'setenvif'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
             if _get_service_status('apache2') == 'active':
-                subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True)
+                subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         if _get_service_status('nginx') == 'active':
-            subprocess.run(['systemctl', 'reload', 'nginx'], capture_output=True)
+            subprocess.run(['systemctl', 'reload', 'nginx'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         yield emit(100, f"PHP {version} installed and running successfully!", success=True)
+    except subprocess.TimeoutExpired:
+        yield emit(0, f"Installation timed out while setting up PHP {version}. Please check /var/log/apt/term.log and retry.", error=True)
     except Exception as e:
         yield emit(0, f"Installation error: {str(e)}", error=True)
 
@@ -760,34 +1026,38 @@ def uninstall_php_version(version):
         return False, f"Cannot uninstall PHP {version}: currently assigned to {sample}{suffix}. Switch those domains first."
 
     try:
-        subprocess.run(['systemctl', 'stop', f'php{version}-fpm'], capture_output=True)
-        subprocess.run(['systemctl', 'disable', f'php{version}-fpm'], capture_output=True)
+        subprocess.run(['systemctl', 'stop', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+        subprocess.run(['systemctl', 'disable', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         if shutil.which('a2disconf'):
-            subprocess.run(['a2disconf', f'php{version}-fpm'], capture_output=True)
+            subprocess.run(['a2disconf', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         dpkg_res = subprocess.run(
             ['dpkg-query', '-W', '-f=${Package}\n', f'php{version}*'],
-            capture_output=True, text=True
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
         )
         pkg_re = re.compile(rf'^php{re.escape(version)}(?:-[a-z0-9.+-]+)?$')
         pkgs = [p.strip() for p in dpkg_res.stdout.splitlines() if pkg_re.fullmatch(p.strip())]
 
         if pkgs:
-            env = os.environ.copy()
-            env['DEBIAN_FRONTEND'] = 'noninteractive'
+            env = _non_interactive_env()
             purge = subprocess.run(
-                ['apt-get', 'purge', '-y'] + pkgs,
-                capture_output=True, text=True, env=env
+                ['apt-get', 'purge', '-y'] + _APT_COMMON_OPTS + pkgs,
+                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=300
             )
             if purge.returncode != 0:
                 return False, f"Failed to purge PHP {version} packages: {purge.stderr.strip()}"
-            subprocess.run(['apt-get', 'autoremove', '-y'], capture_output=True, env=env)
+            subprocess.run(
+                ['apt-get', 'autoremove', '-y'] + _APT_COMMON_OPTS,
+                capture_output=True, env=env, stdin=subprocess.DEVNULL, timeout=180
+            )
 
         if _get_service_status('apache2') == 'active':
-            subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True)
+            subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         return True, f"PHP {version} uninstalled successfully."
+    except subprocess.TimeoutExpired:
+        return False, f"Uninstall timed out while removing PHP {version} packages."
     except Exception as e:
         return False, f"Uninstall failed: {str(e)}"
 
@@ -805,15 +1075,19 @@ def install_php_extension(version, ext):
 
     pkg = f'php{version}-{ext}'
     try:
-        env = os.environ.copy()
-        env['DEBIAN_FRONTEND'] = 'noninteractive'
-        res = subprocess.run(['apt-get', 'install', '-y', pkg], capture_output=True, text=True, env=env)
+        env = _non_interactive_env()
+        res = subprocess.run(
+            ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + [pkg],
+            capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=180
+        )
         if res.returncode != 0:
             return False, f"Failed to install {pkg}: {res.stderr.strip() or res.stdout.strip()}"
 
         if _get_service_status(f'php{version}-fpm') == 'active':
-            subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True)
+            subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
         return True, f"Extension {pkg} installed successfully."
+    except subprocess.TimeoutExpired:
+        return False, f"Timed out installing {pkg}."
     except Exception as e:
         return False, f"Error installing {pkg}: {str(e)}"
 

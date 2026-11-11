@@ -50,7 +50,11 @@ def php_manager():
             extensions = request.form.getlist('extensions')
             return Response(
                 stream_with_context(install_php_generator(version, extensions)),
-                mimetype='application/x-ndjson'
+                mimetype='application/x-ndjson',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'X-Accel-Buffering': 'no',
+                },
             )
 
         elif action == 'set_domain_php':
