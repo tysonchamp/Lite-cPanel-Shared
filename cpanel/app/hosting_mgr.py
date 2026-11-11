@@ -244,26 +244,57 @@ def add_user(username, password, plan_name, main_domain):
     conn.close()
     return True, "User created successfully."
 
-def delete_user(username):
+def delete_user_with_report(username):
+    """Delete a shared hosting user and every associated system/panel resource."""
+    from user_cleanup_mgr import (
+        cleanup_user_system_resources,
+        format_cleanup_summary,
+        is_valid_target_username,
+    )
+
+    if not is_valid_target_username(username):
+        return False, "Invalid or protected username.", {}
+
     conn = _get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT username FROM users WHERE username = ?", (username,))
-    if not cursor.fetchone():
+    cursor.execute("SELECT username, main_domain FROM users WHERE username = ?", (username,))
+    user_row = cursor.fetchone()
+    if not user_row:
         conn.close()
-        return False, "User not found."
-    
-    # Here we would normally clean up resources, but for now we just remove from db
-    # We optionally can remove the Linux user
-    try:
-        subprocess.run(['userdel', '-r', username], check=False)
-    except Exception:
-        pass
+        return False, "User not found.", {}
 
+    main_domain = user_row["main_domain"]
+    cursor.execute(
+        "SELECT resource_type, resource_name FROM user_resources WHERE username = ?",
+        (username,),
+    )
+    resources = {}
+    for row in cursor.fetchall():
+        resources.setdefault(row["resource_type"], []).append(row["resource_name"])
+    conn.close()
+
+    report = cleanup_user_system_resources(username, main_domain=main_domain, resources=resources)
+
+    conn = _get_conn()
+    cursor = conn.cursor()
+    for domain in report.get("all_domains", []):
+        cursor.execute("DELETE FROM nextjs_ports WHERE domain = ?", (domain,))
+        cursor.execute("DELETE FROM docker_ports WHERE domain = ?", (domain,))
     cursor.execute("DELETE FROM user_resources WHERE username = ?", (username,))
     cursor.execute("DELETE FROM users WHERE username = ?", (username,))
     conn.commit()
     conn.close()
-    return True, "User deleted."
+
+    summary = format_cleanup_summary(username, report)
+    return True, summary, report
+
+
+def delete_user(username):
+    """Delete a shared hosting user and all associated system and database resources."""
+    ok, msg, report = delete_user_with_report(username)
+    if ok and report.get("warnings"):
+        return ok, f"{msg} Warnings: {'; '.join(report['warnings'])}"
+    return ok, msg
 
 def update_user_plan(username, new_plan_name):
     conn = _get_conn()

@@ -89,8 +89,12 @@ def admin_users():
                 ok, msg = update_user_plan(username, plan)
                 flash(msg, 'success' if ok else 'danger')
         elif action == 'delete':
-            username = request.form.get('username')
-            ok, msg = delete_user(username)
+            from hosting_mgr import delete_user_with_report
+
+            username = (request.form.get('username') or '').strip()
+            ok, msg, report = delete_user_with_report(username)
             flash(msg, 'success' if ok else 'danger')
+            if ok and report.get('warnings'):
+                flash(f"Some cleanup warnings occurred: {'; '.join(report['warnings'])}", 'warning')
         return redirect(url_for('admin.admin_users'))
     return render_template('admin_users.html', users=get_users(), plans=get_plans())

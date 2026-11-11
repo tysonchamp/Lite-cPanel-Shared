@@ -71,7 +71,7 @@
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                         <input type="hidden" name="action" value="delete"/>
                                         <input type="hidden" name="username" value="{{ username }}"/>
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete user? This does not delete their files, only from the cPanel tracking.');"><i class="fas fa-trash"></i></button>
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" data-username="{{ username }}" onclick="return confirm('PERMANENTLY delete user ' + this.dataset.username + '? This will delete their Linux account, home files, domains/SSL, FTP/SFTP accounts, databases, PM2 processes, and Docker containers/images. This action cannot be undone!');"><i class="fas fa-trash"></i></button>
                                     </form>
 
                                     <!-- Edit User Plan Modal -->
