@@ -20,6 +20,7 @@ from php_mgr import (
     install_php_extension,
     get_php_ini_settings,
     save_php_ini_settings,
+    import_ondrej_key_text,
 )
 
 php_bp = Blueprint('php', __name__)
@@ -131,6 +132,15 @@ def php_manager():
             version = request.form.get('version', '').strip()
             extension = request.form.get('extension', '').strip()
             ok, msg = install_php_extension(version, extension)
+            flash(msg, 'success' if ok else 'danger')
+            return redirect(url_for('php.php_manager', tab='versions'))
+
+        elif action == 'import_ondrej_key':
+            if not is_admin:
+                flash("Access denied. Only the root user can configure PHP repositories.", "danger")
+                return redirect(url_for('php.php_manager'))
+            key_text = request.form.get('pgp_key', '')
+            ok, msg = import_ondrej_key_text(key_text)
             flash(msg, 'success' if ok else 'danger')
             return redirect(url_for('php.php_manager', tab='versions'))
 

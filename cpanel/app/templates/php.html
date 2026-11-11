@@ -278,6 +278,28 @@
                     <div id="phpProgressDetail" class="small text-muted font-monospace mt-2 text-truncate"></div>
                 </div>
                 <div id="phpProgressAlert" class="alert mt-3" style="display: none;"></div>
+                <details id="ondrejKeyFallbackBox" class="mt-3 border rounded p-3 bg-light">
+                    <summary class="fw-semibold small text-secondary" style="cursor: pointer;">
+                        <i class="fas fa-key me-1"></i> Repository GPG Key Blocked? Import Launchpad Ondrej Key Manually
+                    </summary>
+                    <p class="small text-muted mt-2 mb-2">
+                        If your VPS blocks outbound access to PGP keyservers, download key
+                        <code>14AA40EC0831756756D7F66C4F4EA0AAE5267A6C</code> from
+                        <a href="https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C" target="_blank" rel="noopener">Ubuntu Keyserver</a>
+                        or
+                        <a href="https://pgpkeys.eu/pks/lookup?op=get&options=mr&search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C" target="_blank" rel="noopener">PGPKeys EU</a>
+                        and paste the <code>-----BEGIN PGP PUBLIC KEY BLOCK-----</code> text below (fingerprint is verified before saving).
+                    </p>
+                    <form method="POST" action="{{ url_for('php.php_manager') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="import_ondrej_key">
+                        <textarea class="form-control form-control-sm font-monospace mb-2" name="pgp_key" rows="5" required
+                            placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----&#10;...&#10;-----END PGP PUBLIC KEY BLOCK-----"></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-shield-alt me-1"></i> Verify &amp; Save Repository Key
+                        </button>
+                    </form>
+                </details>
                 {% else %}
                 <p class="text-muted mb-0"><i class="fas fa-check-circle text-success me-1"></i> All supported PHP versions ({{ supported_versions|join(', ') }}) already have PHP-FPM installed.</p>
                 {% endif %}
@@ -567,6 +589,10 @@
                     alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
                     alertDiv.appendChild(document.createTextNode(data.message));
                     alertDiv.style.display = 'block';
+                    if (data.message && data.message.includes('Failed to configure ondrej/php repository')) {
+                        const fallbackBox = document.getElementById('ondrejKeyFallbackBox');
+                        if (fallbackBox) fallbackBox.open = true;
+                    }
                 } else if (data.success) {
                     completed = true;
                     bar.classList.add('bg-success');

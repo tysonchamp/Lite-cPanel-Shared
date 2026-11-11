@@ -621,6 +621,16 @@ def manage_php_fpm_service(version, action):
 _ONDREJ_KEY_FPR = '14AA40EC0831756756D7F66C4F4EA0AAE5267A6C'
 _ONDREJ_KEY_SOURCES = [
     (
+        'PGPKeys EU (HTTPS)',
+        f'https://pgpkeys.eu/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        False,
+    ),
+    (
+        'PGPKeys UK (HTTPS)',
+        f'https://pgpkeys.uk/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        False,
+    ),
+    (
         'Ubuntu Keyserver (HTTPS)',
         f'https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
         False,
@@ -631,14 +641,19 @@ _ONDREJ_KEY_SOURCES = [
         False,
     ),
     (
-        'MIT PGP Keyserver (HTTPS)',
-        f'https://pgp.mit.edu/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
-        False,
+        'PGPKeys EU (HTTP port 80)',
+        f'http://pgpkeys.eu/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        True,
     ),
     (
         'Ubuntu Keyserver (HTTP port 80)',
         f'http://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
         True,
+    ),
+    (
+        'MIT PGP Keyserver (HTTPS)',
+        f'https://pgp.mit.edu/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        False,
     ),
 ]
 _ONDREJ_KEY_URL = _ONDREJ_KEY_SOURCES[0][1]
@@ -786,70 +801,171 @@ def _urllib_fetch(url, timeout=12):
         return False, b'', f"urllib: {str(e)}"
 
 
-def _curl_fetch(url, timeout=12):
-    """Fetch URL content via IPv4-first curl, default stack fallback, and urllib fallback."""
+def _curl_fetch(url, timeout=10):
+    """Fetch URL content via IPv4-first curl, IPv6 fallback, and urllib fallback."""
     errors = []
+    skip_urllib = False
     if shutil.which('curl'):
-        for label, extra in (('IPv4', ['-4']), ('default', [])):
+        for label, extra in (('IPv4', ['-4']), ('IPv6', ['-6'])):
             try:
                 res = subprocess.run(
                     [
-                        'curl', '-fsSL', '--http1.1', '--retry', '1', '--retry-delay', '1',
-                        '--connect-timeout', '5', '--max-time', str(timeout),
+                        'curl', '-fsSL', '--http1.1',
+                        '--connect-timeout', '4', '--max-time', str(timeout),
                     ] + extra + [url],
-                    capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 5
+                    capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 3
                 )
                 if res.returncode == 0 and res.stdout:
                     return True, res.stdout, None
                 msg = res.stderr.decode('utf-8', errors='replace').strip() or f"exited with {res.returncode}"
                 errors.append(f"curl ({label}): {msg}")
+                # HTTP 404 or IPv4 connect timeout need not waste another cycle in urllib
+                if label == 'IPv4' and res.returncode == 22:
+                    skip_urllib = True
+                    break
+                if label == 'IPv4' and res.returncode == 28:
+                    skip_urllib = True
             except subprocess.TimeoutExpired:
                 errors.append(f"curl ({label}): timed out after {timeout}s")
+                if label == 'IPv4':
+                    skip_urllib = True
             except Exception as e:
                 errors.append(f"curl ({label}): {str(e)}")
     else:
         errors.append("curl binary not found")
 
-    ok, data, u_err = _urllib_fetch(url, timeout=min(timeout, 12))
-    if ok and data:
-        return True, data, None
-    if u_err:
-        errors.append(u_err)
+    if not skip_urllib:
+        ok, data, u_err = _urllib_fetch(url, timeout=min(timeout, 6))
+        if ok and data:
+            return True, data, None
+        if u_err:
+            errors.append(u_err)
     return False, b'', '; '.join(errors)
 
 
-def _gpg_fetch_ondrej_key(timeout=15):
-    """Fetch ondrej/php key via gpg HKP port 80 inside an isolated temporary GNUPGHOME."""
+def _gpg_fetch_ondrej_key(timeout=10):
+    """Fetch ondrej/php key via gpg HKPS/HKP mirrors inside an isolated temporary GNUPGHOME."""
     if not shutil.which('gpg'):
         return False, b'', "gpg HKP: gpg binary not found"
+    keyservers = (
+        'hkps://pgpkeys.eu',
+        'hkp://pgpkeys.eu:80',
+        'hkps://pgpkeys.uk',
+        'hkp://keyserver.ubuntu.com:80',
+    )
+    errs = []
     try:
         with tempfile.TemporaryDirectory(prefix='cpanel-gpg-') as gpghome:
             os.chmod(gpghome, 0o700)
-            recv = subprocess.run(
-                [
-                    'gpg', '--batch', '--homedir', gpghome,
-                    '--keyserver', 'hkp://keyserver.ubuntu.com:80',
-                    '--recv-keys', _ONDREJ_KEY_FPR,
-                ],
-                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout
+            for ks in keyservers:
+                try:
+                    recv = subprocess.run(
+                        [
+                            'gpg', '--batch', '--homedir', gpghome,
+                            '--keyserver', ks,
+                            '--keyserver-options', 'timeout=6',
+                            '--recv-keys', _ONDREJ_KEY_FPR,
+                        ],
+                        capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout
+                    )
+                    if recv.returncode != 0:
+                        msg = recv.stderr.strip() or recv.stdout.strip() or f"exited {recv.returncode}"
+                        errs.append(f"{ks}: {msg}")
+                        continue
+                    exp = subprocess.run(
+                        ['gpg', '--batch', '--homedir', gpghome, '--armor', '--export', _ONDREJ_KEY_FPR],
+                        capture_output=True, stdin=subprocess.DEVNULL, timeout=10
+                    )
+                    if exp.returncode == 0 and exp.stdout:
+                        block = _extract_pgp_block(exp.stdout)
+                        if block:
+                            return True, block, None
+                    err = exp.stderr.decode('utf-8', errors='replace').strip() or "empty exported key"
+                    errs.append(f"{ks} export: {err}")
+                except subprocess.TimeoutExpired:
+                    errs.append(f"{ks}: timed out after {timeout}s")
+                except Exception as e:
+                    errs.append(f"{ks}: {str(e)}")
+    except Exception as e:
+        errs.append(str(e))
+    return False, b'', f"gpg HKP: {'; '.join(errs)}"
+
+
+def _find_local_ondrej_key():
+    """Scan local APT keyring directories for the Launchpad ondrej/php signing key."""
+    if not shutil.which('gpg'):
+        return None
+    patterns = (
+        '/etc/apt/keyrings/*.asc',
+        '/etc/apt/keyrings/*.gpg',
+        '/etc/apt/trusted.gpg.d/*.asc',
+        '/etc/apt/trusted.gpg.d/*.gpg',
+        '/usr/share/keyrings/*.asc',
+        '/usr/share/keyrings/*.gpg',
+    )
+    candidates = []
+    for pat in patterns:
+        candidates.extend(glob.glob(pat))
+
+    for path in candidates:
+        try:
+            if not os.path.isfile(path) or os.path.getsize(path) == 0:
+                continue
+            show = subprocess.run(
+                ['gpg', '--batch', '--with-colons', '--show-keys', path],
+                capture_output=True, timeout=5
             )
-            if recv.returncode != 0:
-                msg = recv.stderr.strip() or recv.stdout.strip() or f"exited {recv.returncode}"
-                return False, b'', f"gpg HKP: {msg}"
+            if show.returncode != 0:
+                continue
+            if _ONDREJ_KEY_FPR not in show.stdout.decode('utf-8', errors='replace').upper():
+                continue
             exp = subprocess.run(
-                ['gpg', '--batch', '--homedir', gpghome, '--armor', '--export', _ONDREJ_KEY_FPR],
-                capture_output=True, stdin=subprocess.DEVNULL, timeout=10
+                ['gpg', '--batch', '--no-default-keyring', '--keyring', path, '--armor', '--export', _ONDREJ_KEY_FPR],
+                capture_output=True, timeout=5
             )
             if exp.returncode == 0 and exp.stdout:
                 block = _extract_pgp_block(exp.stdout)
                 if block:
-                    return True, block, None
-            err = exp.stderr.decode('utf-8', errors='replace').strip() or "empty exported key"
-            return False, b'', f"gpg HKP export: {err}"
-    except subprocess.TimeoutExpired:
-        return False, b'', f"gpg HKP: timed out after {timeout}s"
+                    return block
+        except Exception:
+            continue
+    return None
+
+
+def _write_ondrej_repo_files(key_block, codename):
+    """Persist verified ondrej/php keyring and APT source list cleanly."""
+    os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
+    for stale in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+    with open(_ONDREJ_KEYRING_PATH, 'wb') as f:
+        f.write(key_block)
+    os.chmod(_ONDREJ_KEYRING_PATH, 0o644)
+    with open(_ONDREJ_LIST_PATH, 'w') as f:
+        f.write(f"deb [signed-by={_ONDREJ_KEYRING_PATH}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu {codename} main\n")
+    os.chmod(_ONDREJ_LIST_PATH, 0o644)
+
+
+def import_ondrej_key_text(raw_text):
+    """Validate and install an admin-supplied ondrej/php ASCII-armored public GPG key."""
+    if not raw_text or not raw_text.strip():
+        return False, "Please paste the PGP public key block."
+    os_info = _detect_os_info()
+    if os_info['id'] == 'debian':
+        return False, "Manual PPA key import is only needed on Ubuntu-based systems."
+    block = _extract_pgp_block(raw_text.encode('utf-8', errors='replace'))
+    if not block:
+        return False, "Invalid input: no ASCII-armored PGP PUBLIC KEY BLOCK found."
+    ok, err = _verify_ondrej_key(block, require_gpg=True)
+    if not ok:
+        return False, f"Key verification failed: {err}"
+    try:
+        _write_ondrej_repo_files(block, os_info['codename'])
+        return True, "Verified and saved ondrej/php repository key. You can now click Install PHP."
     except Exception as e:
-        return False, b'', f"gpg HKP: {str(e)}"
+        return False, f"Failed to write repository key files: {str(e)}"
 
 
 def _has_valid_repo_source(os_id):
@@ -925,29 +1041,30 @@ def _ensure_php_repository_iter(env):
 
     os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
     attempts = []
-    key_block = None
-
-    for idx, (label, url, require_gpg) in enumerate(_ONDREJ_KEY_SOURCES):
-        pct = min(24, 21 + idx)
-        yield {'percent': pct, 'message': f"Fetching ondrej/php GPG key from {label}..."}
-        ok, raw_bytes, fetch_err = _curl_fetch(url, timeout=12)
-        if not ok:
-            attempts.append(f"{label}: {fetch_err}")
-            continue
-        candidate = _extract_pgp_block(raw_bytes)
-        if not candidate:
-            attempts.append(f"{label}: response did not contain a valid PGP public key block")
-            continue
-        v_ok, v_err = _verify_ondrej_key(candidate, require_gpg=require_gpg)
-        if not v_ok:
-            attempts.append(f"{label}: {v_err}")
-            continue
-        key_block = candidate
-        break
+    key_block = _find_local_ondrej_key()
 
     if key_block is None:
-        yield {'percent': 25, 'message': 'Trying gpg HKP fallback (keyserver.ubuntu.com:80)...'}
-        g_ok, g_bytes, g_err = _gpg_fetch_ondrej_key(timeout=15)
+        for idx, (label, url, require_gpg) in enumerate(_ONDREJ_KEY_SOURCES):
+            pct = min(24, 21 + idx)
+            yield {'percent': pct, 'message': f"Fetching ondrej/php GPG key from {label}..."}
+            ok, raw_bytes, fetch_err = _curl_fetch(url, timeout=10)
+            if not ok:
+                attempts.append(f"{label}: {fetch_err}")
+                continue
+            candidate = _extract_pgp_block(raw_bytes)
+            if not candidate:
+                attempts.append(f"{label}: response did not contain a valid PGP public key block")
+                continue
+            v_ok, v_err = _verify_ondrej_key(candidate, require_gpg=require_gpg)
+            if not v_ok:
+                attempts.append(f"{label}: {v_err}")
+                continue
+            key_block = candidate
+            break
+
+    if key_block is None:
+        yield {'percent': 25, 'message': 'Trying gpg HKP/HKPS keyserver fallbacks...'}
+        g_ok, g_bytes, g_err = _gpg_fetch_ondrej_key(timeout=10)
         if g_ok and g_bytes:
             v_ok, v_err = _verify_ondrej_key(g_bytes, require_gpg=False)
             if v_ok:
@@ -958,18 +1075,7 @@ def _ensure_php_repository_iter(env):
             attempts.append(g_err)
 
     if key_block is not None:
-        # Remove any broken/partial ondrej repo files left by interrupted runs
-        for stale in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
-            try:
-                os.remove(stale)
-            except OSError:
-                pass
-        with open(_ONDREJ_KEYRING_PATH, 'wb') as f:
-            f.write(key_block)
-        os.chmod(_ONDREJ_KEYRING_PATH, 0o644)
-        with open(_ONDREJ_LIST_PATH, 'w') as f:
-            f.write(f"deb [signed-by={_ONDREJ_KEYRING_PATH}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu {codename} main\n")
-        os.chmod(_ONDREJ_LIST_PATH, 0o644)
+        _write_ondrej_repo_files(key_block, codename)
         yield {'percent': 26, 'message': 'Configured ondrej/php repository.'}
         yield {'done': True, 'ok': True, 'error': None}
         return
@@ -1142,6 +1248,7 @@ def install_php_generator(version, extensions=None):
 
         yield emit(28, "Refreshing APT package lists...")
         apt_ok = False
+        used_ipv4 = False
         apt_err = ''
         for force_v4 in (False, True):
             extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
@@ -1149,17 +1256,23 @@ def install_php_generator(version, extensions=None):
             prog = 28
             rc = 1
             tail = []
-            for ev, data in _run_cmd_streaming(update_cmd, env=env, timeout=180):
-                if ev == 'line':
-                    prog = min(40, prog + 1)
-                    yield emit(prog, "Refreshing APT package lists...", detail=data)
-                elif ev == 'tick':
-                    prog = min(40, prog + 1)
-                    yield emit(prog, "Refreshing APT package lists...")
-                elif ev == 'done':
-                    rc, tail = data
+            step_timeout = 75 if not force_v4 else 180
+            try:
+                for ev, data in _run_cmd_streaming(update_cmd, env=env, timeout=step_timeout):
+                    if ev == 'line':
+                        prog = min(40, prog + 1)
+                        yield emit(prog, "Refreshing APT package lists...", detail=data)
+                    elif ev == 'tick':
+                        prog = min(40, prog + 1)
+                        yield emit(prog, "Refreshing APT package lists...")
+                    elif ev == 'done':
+                        rc, tail = data
+            except subprocess.TimeoutExpired:
+                rc = 124
+                tail = [f"apt-get update timed out after {step_timeout}s"]
             if rc == 0:
                 apt_ok = True
+                used_ipv4 = force_v4
                 break
             apt_err = '; '.join(tail[-3:]) or f"apt-get update exited with {rc}"
             if not force_v4:
@@ -1174,7 +1287,7 @@ def install_php_generator(version, extensions=None):
             return
 
         packages = [f'php{version}-fpm', f'php{version}-cli', f'php{version}-common']
-        if version == '7.4':
+        if version == '7.4' and _apt_pkg_exists('php7.4-json'):
             packages.append('php7.4-json')
         for ext in requested_exts:
             pkg = f'php{version}-{ext}'
@@ -1182,21 +1295,36 @@ def install_php_generator(version, extensions=None):
                 packages.append(pkg)
 
         yield emit(45, f"Installing PHP {version} FPM, CLI, and {len(packages) - 3} extensions...")
-        install_cmd = ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + packages
+        install_attempts = [True] if used_ipv4 else [False, True]
         prog = 45
         rc = 1
         tail = []
         last_detail = ''
-        for ev, data in _run_cmd_streaming(install_cmd, env=env, timeout=600):
-            if ev == 'line':
-                last_detail = data
-                prog = min(84, prog + 1)
-                yield emit(prog, f"Installing PHP {version} packages...", detail=data)
-            elif ev == 'tick':
-                prog = min(84, prog + 1)
-                yield emit(prog, f"Installing PHP {version} packages...", detail=last_detail)
-            elif ev == 'done':
-                rc, tail = data
+        for force_v4 in install_attempts:
+            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+            install_cmd = ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + extra_v4 + packages
+            prog = 45
+            rc = 1
+            tail = []
+            step_timeout = 300 if not force_v4 else 600
+            try:
+                for ev, data in _run_cmd_streaming(install_cmd, env=env, timeout=step_timeout):
+                    if ev == 'line':
+                        last_detail = data
+                        prog = min(84, prog + 1)
+                        yield emit(prog, f"Installing PHP {version} packages...", detail=data)
+                    elif ev == 'tick':
+                        prog = min(84, prog + 1)
+                        yield emit(prog, f"Installing PHP {version} packages...", detail=last_detail)
+                    elif ev == 'done':
+                        rc, tail = data
+            except subprocess.TimeoutExpired:
+                rc = 124
+                tail = [f"apt-get install timed out after {step_timeout}s"]
+            if rc == 0:
+                break
+            if not force_v4 and len(install_attempts) > 1:
+                yield emit(45, f"Retrying PHP {version} package install over IPv4...", detail='; '.join(tail[-2:]))
 
         if rc != 0:
             err_detail = '; '.join(tail[-4:]) or f"apt-get install exited with {rc}"
@@ -1300,18 +1428,23 @@ def install_php_extension(version, ext):
     pkg = f'php{version}-{ext}'
     try:
         env = _non_interactive_env()
-        res = subprocess.run(
-            ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + [pkg],
-            capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=180
-        )
-        if res.returncode != 0:
-            return False, f"Failed to install {pkg}: {res.stderr.strip() or res.stdout.strip()}"
-
-        if _get_service_status(f'php{version}-fpm') == 'active':
-            subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
-        return True, f"Extension {pkg} installed successfully."
-    except subprocess.TimeoutExpired:
-        return False, f"Timed out installing {pkg}."
+        last_err = ''
+        for force_v4 in (False, True):
+            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+            try:
+                res = subprocess.run(
+                    ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + extra_v4 + [pkg],
+                    capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL,
+                    timeout=90 if not force_v4 else 180
+                )
+                if res.returncode == 0:
+                    if _get_service_status(f'php{version}-fpm') == 'active':
+                        subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+                    return True, f"Extension {pkg} installed successfully."
+                last_err = res.stderr.strip() or res.stdout.strip() or f"apt-get exited with {res.returncode}"
+            except subprocess.TimeoutExpired:
+                last_err = f"Timed out installing {pkg}"
+        return False, f"Failed to install {pkg}: {last_err}"
     except Exception as e:
         return False, f"Error installing {pkg}: {str(e)}"
 
