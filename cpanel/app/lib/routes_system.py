@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, Response, stream_with_context
-from auth import login_required
+from auth import login_required, admin_required
 import socket
 
 from cron_mgr import get_cron_jobs, add_cron_job, delete_cron_job, enable_ssl_renewal
@@ -165,6 +165,7 @@ def firewall():
 
 @system_bp.route('/modsecurity', methods=['GET', 'POST'])
 @login_required
+@admin_required
 def modsecurity():
     modsec_installed = check_modsec_installed()
 

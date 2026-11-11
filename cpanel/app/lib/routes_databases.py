@@ -156,7 +156,7 @@ def mongodb_route():
     db_details = get_mongo_dbs(role, username) if is_installed else []
     me_installed = check_mongo_express_installed()
     me_status = get_mongo_express_status() if is_installed else 'not_installed'
-    me_creds = get_mongo_express_credentials() if me_status == 'active' else {}
+    me_creds = get_mongo_express_credentials() if (me_status == 'active' and role == 'admin') else {}
     
     return render_template(
         'mongodb.html', 

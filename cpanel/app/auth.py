@@ -38,7 +38,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
-            return redirect(url_for('login', next=request.url))
+            return redirect(url_for('auth.login', next=request.url))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -47,6 +47,6 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if session.get('role') != 'admin':
             flash('Admin access required.', 'danger')
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('dashboard.dashboard'))
         return f(*args, **kwargs)
     return decorated_function

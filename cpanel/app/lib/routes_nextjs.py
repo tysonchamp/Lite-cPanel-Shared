@@ -103,7 +103,12 @@ def process_manager():
     if request.method == 'POST':
         action = request.form.get('action')
         
-        if action == 'add_app':
+        if action == 'install_pm2':
+            if session.get('role') != 'admin':
+                flash("Access denied.", "danger")
+                return redirect(url_for('nextjs.process_manager'))
+
+        elif action == 'add_app':
             domain = request.form.get('domain')
             if not domain:
                 flash("Domain is required.", "danger")
