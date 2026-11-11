@@ -308,10 +308,39 @@
 
         <!-- Installed PHP Versions Table -->
         <div class="card shadow-sm border-0">
-            <div class="card-header bg-white border-bottom">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h5 class="mb-0">Installed PHP Versions</h5>
+                {% if is_admin %}
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <form method="POST" action="{{ url_for('php.php_manager') }}" id="checkPhpUpdatesForm" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="check_php_updates">
+                        <button type="submit" id="checkPhpUpdatesBtn" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-sync-alt me-1"></i> Check Updates
+                        </button>
+                    </form>
+                    {% if total_updates_available > 0 %}
+                    <button type="button" id="updateAllPhpBtn" class="btn btn-sm btn-warning text-dark fw-semibold" onclick="startPhpUpdate('all')">
+                        <i class="fas fa-arrow-circle-up me-1"></i> Update All ({{ total_updates_available }})
+                    </button>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
             <div class="card-body p-0">
+                {% if is_admin %}
+                <input type="hidden" id="phpUpdateCsrf" value="{{ csrf_token() }}">
+                <div id="phpUpdateProgressContainer" class="p-3 border-bottom bg-light" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span id="phpUpdateProgressText" class="fw-semibold small text-dark">Preparing PHP update...</span>
+                        <small id="phpUpdateProgressDetail" class="font-monospace text-muted text-truncate ms-2" style="max-width: 55%;"></small>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div id="phpUpdateProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning text-dark" role="progressbar" style="width: 5%;">5%</div>
+                    </div>
+                    <div id="phpUpdateProgressAlert" class="alert mt-3 mb-0" style="display: none;"></div>
+                </div>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
@@ -324,14 +353,29 @@
                         </thead>
                         <tbody>
                             {% for v in installed_versions %}
+                            {% set upd = php_updates.get(v.version) if php_updates else none %}
                             <tr>
                                 <td class="fw-bold">
                                     <i class="fab fa-php text-primary me-2"></i>PHP {{ v.version }}
+                                    {% if v.full_version %}
+                                        <span class="badge bg-light text-dark border font-monospace ms-1" title="Package version: {{ v.pkg_version }}">v{{ v.full_version }}</span>
+                                    {% endif %}
                                     {% if v.is_default %}
                                         <span class="badge bg-primary ms-1">System Default</span>
                                     {% endif %}
                                     {% if not v.has_fpm %}
                                         <span class="badge bg-warning text-dark ms-1">CLI/ModPHP Only</span>
+                                    {% endif %}
+                                    {% if is_admin and upd %}
+                                        {% if upd.has_update %}
+                                            <span class="badge bg-warning text-dark ms-1" title="{{ upd.upgradable_packages|join(', ') }}">
+                                                <i class="fas fa-arrow-circle-up me-1"></i>Update: {{ upd.update_label }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle ms-1">
+                                                <i class="fas fa-check me-1"></i>Up to date
+                                            </span>
+                                        {% endif %}
                                     {% endif %}
                                 </td>
                                 <td>
@@ -384,6 +428,12 @@
                                                 <i class="fas fa-star me-1"></i> Set Default
                                             </button>
                                         </form>
+                                        {% endif %}
+
+                                        {% if is_admin and upd and upd.has_update %}
+                                        <button type="button" class="btn btn-sm btn-warning text-dark php-update-row-btn" data-php-version="{{ v.version }}" onclick="startPhpUpdate('{{ v.version }}')" title="Update {{ upd.upgradable_count }} package(s) to {{ upd.update_label }}">
+                                            <i class="fas fa-arrow-circle-up me-1"></i> Update
+                                        </button>
                                         {% endif %}
 
                                         <button type="button" class="btn btn-sm btn-outline-info" onclick="openExtensionsModal('{{ v.version }}')">
@@ -549,118 +599,215 @@
     }
 
     {% if is_admin %}
+    const checkPhpUpdatesForm = document.getElementById('checkPhpUpdatesForm');
+    if (checkPhpUpdatesForm) {
+        checkPhpUpdatesForm.addEventListener('submit', function() {
+            const btn = document.getElementById('checkPhpUpdatesBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Checking...';
+            }
+        });
+    }
+
+    async function streamPhpNdjson(formData, ui) {
+        const {
+            container,
+            text,
+            bar,
+            detail,
+            alertDiv,
+            initialMessage,
+            streamVerb,
+            barActiveClasses,
+            onBeforeStart,
+            onFinally,
+            onErrorMessage,
+        } = ui;
+
+        if (onBeforeStart) onBeforeStart();
+        container.style.display = 'block';
+        alertDiv.style.display = 'none';
+        bar.style.width = '5%';
+        bar.innerText = '5%';
+        text.innerText = initialMessage;
+        if (detail) detail.textContent = '';
+        bar.classList.remove('bg-danger', 'bg-success', 'bg-warning', 'text-dark');
+        if (barActiveClasses && barActiveClasses.length) {
+            bar.classList.add(...barActiveClasses);
+        }
+        bar.classList.add('progress-bar-animated');
+
+        let completed = false;
+        const handleEvent = (data) => {
+            bar.style.width = data.progress + "%";
+            bar.innerText = data.progress + "%";
+            text.innerText = data.message;
+            if (detail && data.detail) {
+                detail.textContent = data.detail;
+            }
+
+            if (data.error) {
+                completed = true;
+                bar.classList.remove('bg-warning', 'text-dark', 'progress-bar-animated');
+                bar.classList.add('bg-danger');
+                alertDiv.className = 'alert alert-danger mt-3';
+                alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
+                alertDiv.appendChild(document.createTextNode(data.message));
+                alertDiv.style.display = 'block';
+                if (onErrorMessage) onErrorMessage(data.message);
+            } else if (data.success) {
+                completed = true;
+                bar.classList.remove('bg-warning', 'text-dark', 'progress-bar-animated');
+                bar.classList.add('bg-success');
+                alertDiv.className = 'alert alert-success mt-3';
+                alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ';
+                alertDiv.appendChild(document.createTextNode(data.message + ' Reloading...'));
+                alertDiv.style.display = 'block';
+                setTimeout(() => { window.location.href = "{{ url_for('php.php_manager', tab='versions') }}"; }, 1800);
+            }
+        };
+
+        try {
+            const response = await fetch("{{ url_for('php.php_manager') }}", {
+                method: 'POST',
+                body: formData
+            });
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!response.ok && !contentType.includes('application/x-ndjson')) {
+                throw new Error("Server returned HTTP " + response.status);
+            }
+            if (!contentType.includes('application/x-ndjson')) {
+                throw new Error("Unexpected response from server (session may have expired).");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    handleEvent(JSON.parse(line));
+                }
+            }
+
+            buffer += decoder.decode();
+            if (buffer.trim()) {
+                handleEvent(JSON.parse(buffer.trim()));
+            }
+
+            if (!completed) {
+                bar.classList.remove('bg-warning', 'text-dark', 'progress-bar-animated');
+                bar.classList.add('bg-danger');
+                alertDiv.className = 'alert alert-danger mt-3';
+                alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
+                alertDiv.appendChild(document.createTextNode(`${streamVerb} stream ended before completion (${bar.innerText}). Please retry.`));
+                alertDiv.style.display = 'block';
+            }
+        } catch (err) {
+            bar.classList.remove('bg-warning', 'text-dark', 'progress-bar-animated');
+            bar.classList.add('bg-danger');
+            alertDiv.className = 'alert alert-danger mt-3';
+            alertDiv.innerText = "Connection failed: " + err.message;
+            alertDiv.style.display = 'block';
+        } finally {
+            if (onFinally) onFinally();
+        }
+    }
+
     const installPhpForm = document.getElementById('installPhpForm');
     if (installPhpForm) {
         installPhpForm.addEventListener('submit', async function(e) {
             e.preventDefault();
-
             const btn = document.getElementById('installPhpBtn');
-            const container = document.getElementById('phpProgressContainer');
-            const text = document.getElementById('phpProgressText');
-            const bar = document.getElementById('phpProgressBar');
-            const detail = document.getElementById('phpProgressDetail');
-            const alertDiv = document.getElementById('phpProgressAlert');
-
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Installing...';
-            container.style.display = 'block';
-            alertDiv.style.display = 'none';
-            bar.style.width = '5%';
-            bar.innerText = '5%';
-            text.innerText = 'Starting PHP installation...';
-            if (detail) detail.textContent = '';
-            bar.classList.remove('bg-danger', 'bg-success');
-            bar.classList.add('progress-bar-animated');
-
-            let completed = false;
-            const handleEvent = (data) => {
-                bar.style.width = data.progress + "%";
-                bar.innerText = data.progress + "%";
-                text.innerText = data.message;
-                if (detail && data.detail) {
-                    detail.textContent = data.detail;
-                }
-
-                if (data.error) {
-                    completed = true;
-                    bar.classList.add('bg-danger');
-                    bar.classList.remove('progress-bar-animated');
-                    alertDiv.className = 'alert alert-danger mt-3';
-                    alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
-                    alertDiv.appendChild(document.createTextNode(data.message));
-                    alertDiv.style.display = 'block';
-                    if (data.message && data.message.includes('Failed to configure')) {
+            await streamPhpNdjson(new FormData(installPhpForm), {
+                container: document.getElementById('phpProgressContainer'),
+                text: document.getElementById('phpProgressText'),
+                bar: document.getElementById('phpProgressBar'),
+                detail: document.getElementById('phpProgressDetail'),
+                alertDiv: document.getElementById('phpProgressAlert'),
+                initialMessage: 'Starting PHP installation...',
+                streamVerb: 'Installation',
+                barActiveClasses: [],
+                onBeforeStart: () => {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Installing...';
+                },
+                onFinally: () => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-download me-1"></i> Install PHP';
+                },
+                onErrorMessage: (msg) => {
+                    if (msg && msg.includes('Failed to configure')) {
                         const fallbackBox = document.getElementById('ondrejKeyFallbackBox');
                         if (fallbackBox) fallbackBox.open = true;
                     }
-                } else if (data.success) {
-                    completed = true;
-                    bar.classList.add('bg-success');
-                    bar.classList.remove('progress-bar-animated');
-                    alertDiv.className = 'alert alert-success mt-3';
-                    alertDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i> ';
-                    alertDiv.appendChild(document.createTextNode(data.message + ' Reloading...'));
-                    alertDiv.style.display = 'block';
-                    setTimeout(() => { window.location.href = "{{ url_for('php.php_manager', tab='versions') }}"; }, 1800);
-                }
-            };
+                },
+            });
+        });
+    }
 
-            try {
-                const formData = new FormData(installPhpForm);
-                const response = await fetch("{{ url_for('php.php_manager') }}", {
-                    method: 'POST',
-                    body: formData
-                });
+    async function startPhpUpdate(version) {
+        const label = version === 'all' ? 'all installed PHP versions' : `PHP ${version}`;
+        if (!confirm(`Update ${label} to the latest repository packages?`)) {
+            return;
+        }
+        const csrfInput = document.getElementById('phpUpdateCsrf');
+        const formData = new FormData();
+        formData.append('csrf_token', csrfInput ? csrfInput.value : '');
+        formData.append('action', 'update_php');
+        formData.append('version', version);
 
-                const contentType = response.headers.get('content-type') || '';
-                if (!response.ok && !contentType.includes('application/x-ndjson')) {
-                    throw new Error("Server returned HTTP " + response.status);
-                }
-                if (!contentType.includes('application/x-ndjson')) {
-                    throw new Error("Unexpected response from server (session may have expired).");
-                }
+        const updateAllBtn = document.getElementById('updateAllPhpBtn');
+        const checkBtn = document.getElementById('checkPhpUpdatesBtn');
+        const rowBtns = Array.from(document.querySelectorAll('.php-update-row-btn'));
+        const prevAllHtml = updateAllBtn ? updateAllBtn.innerHTML : '';
+        const prevRowHtml = rowBtns.map(b => b.innerHTML);
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder("utf-8");
-                let buffer = "";
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split("\n");
-                    buffer = lines.pop();
-
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        handleEvent(JSON.parse(line));
+        await streamPhpNdjson(formData, {
+            container: document.getElementById('phpUpdateProgressContainer'),
+            text: document.getElementById('phpUpdateProgressText'),
+            bar: document.getElementById('phpUpdateProgressBar'),
+            detail: document.getElementById('phpUpdateProgressDetail'),
+            alertDiv: document.getElementById('phpUpdateProgressAlert'),
+            initialMessage: version === 'all' ? 'Starting updates for all installed PHP versions...' : `Starting PHP ${version} update...`,
+            streamVerb: 'Update',
+            barActiveClasses: ['bg-warning', 'text-dark'],
+            onBeforeStart: () => {
+                if (checkBtn) checkBtn.disabled = true;
+                if (updateAllBtn) {
+                    updateAllBtn.disabled = true;
+                    if (version === 'all') {
+                        updateAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Updating...';
                     }
                 }
-
-                buffer += decoder.decode();
-                if (buffer.trim()) {
-                    handleEvent(JSON.parse(buffer.trim()));
+                rowBtns.forEach(b => {
+                    b.disabled = true;
+                    if (b.dataset.phpVersion === version) {
+                        b.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Updating...';
+                    }
+                });
+            },
+            onFinally: () => {
+                if (checkBtn) checkBtn.disabled = false;
+                if (updateAllBtn) {
+                    updateAllBtn.disabled = false;
+                    updateAllBtn.innerHTML = prevAllHtml;
                 }
-
-                if (!completed) {
-                    bar.classList.add('bg-danger');
-                    bar.classList.remove('progress-bar-animated');
-                    alertDiv.className = 'alert alert-danger mt-3';
-                    alertDiv.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i> ';
-                    alertDiv.appendChild(document.createTextNode("Installation stream ended before completion (" + bar.innerText + "). Please retry."));
-                    alertDiv.style.display = 'block';
-                }
-            } catch (err) {
-                bar.classList.add('bg-danger');
-                bar.classList.remove('progress-bar-animated');
-                alertDiv.className = 'alert alert-danger mt-3';
-                alertDiv.innerText = "Connection failed: " + err.message;
-                alertDiv.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-download me-1"></i> Install PHP';
-            }
+                rowBtns.forEach((b, idx) => {
+                    b.disabled = false;
+                    b.innerHTML = prevRowHtml[idx];
+                });
+            },
         });
     }
 

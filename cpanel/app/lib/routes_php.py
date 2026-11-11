@@ -21,9 +21,34 @@ from php_mgr import (
     get_php_ini_settings,
     save_php_ini_settings,
     import_ondrej_key_text,
+    get_php_updates_status,
+    check_php_updates,
+    update_php_generator,
 )
 
 php_bp = Blueprint('php', __name__)
+
+
+def _ndjson_stream_response(is_admin, denied_message, gen_factory):
+    """Return a streaming NDJSON Response for admin actions or a 403 payload."""
+    if not is_admin:
+        return Response(
+            json.dumps({
+                'progress': 100,
+                'message': denied_message,
+                'error': True,
+            }) + "\n",
+            status=403,
+            mimetype='application/x-ndjson',
+        )
+    return Response(
+        stream_with_context(gen_factory()),
+        mimetype='application/x-ndjson',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )
 
 
 @php_bp.route('/php', methods=['GET', 'POST'])
@@ -37,25 +62,20 @@ def php_manager():
         action = request.form.get('action', '').strip()
 
         if action == 'install_php':
-            if not is_admin:
-                return Response(
-                    json.dumps({
-                        'progress': 100,
-                        'message': 'Access denied. Only the root user can install PHP versions.',
-                        'error': True
-                    }) + "\n",
-                    status=403,
-                    mimetype='application/x-ndjson'
-                )
             version = request.form.get('version', '').strip()
             extensions = request.form.getlist('extensions')
-            return Response(
-                stream_with_context(install_php_generator(version, extensions)),
-                mimetype='application/x-ndjson',
-                headers={
-                    'Cache-Control': 'no-cache',
-                    'X-Accel-Buffering': 'no',
-                },
+            return _ndjson_stream_response(
+                is_admin,
+                'Access denied. Only the root user can install PHP versions.',
+                lambda: install_php_generator(version, extensions),
+            )
+
+        elif action == 'update_php':
+            version = request.form.get('version', '').strip()
+            return _ndjson_stream_response(
+                is_admin,
+                'Access denied. Only the root user can update PHP versions.',
+                lambda: update_php_generator(version),
             )
 
         elif action == 'set_domain_php':
@@ -144,6 +164,14 @@ def php_manager():
             flash(msg, 'success' if ok else 'danger')
             return redirect(url_for('php.php_manager', tab='versions'))
 
+        elif action == 'check_php_updates':
+            if not is_admin:
+                flash("Access denied. Only the root user can check for PHP updates.", "danger")
+                return redirect(url_for('php.php_manager'))
+            ok, msg, _ = check_php_updates()
+            flash(msg, 'success' if ok else 'danger')
+            return redirect(url_for('php.php_manager', tab='versions'))
+
         elif action == 'save_ini':
             if not is_admin:
                 flash("Access denied. Only the root user can edit global PHP INI settings.", "danger")
@@ -164,6 +192,8 @@ def php_manager():
     default_php = get_default_php_version()
     domains = get_php_domains(role, username)
     webserver_type = get_webserver_type()
+    php_updates = get_php_updates_status(installed_versions) if is_admin else {}
+    total_updates_available = sum(1 for u in php_updates.values() if u.get('has_update'))
 
     active_tab = request.args.get('tab', 'domains')
     if not is_admin or active_tab not in ('domains', 'versions', 'ini'):
@@ -213,6 +243,8 @@ def php_manager():
         selected_ini_sapi=selected_ini_sapi,
         ini_path=ini_path,
         ini_values=ini_values,
+        php_updates=php_updates,
+        total_updates_available=total_updates_available,
     )
 
 

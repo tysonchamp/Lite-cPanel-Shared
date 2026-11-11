@@ -19,8 +19,21 @@ apt-get install -y python3-venv python3-pip libmysqlclient-dev pkg-config \
     pure-ftpd libwww-perl sendmail iptables wget tar goaccess
 
 # Configure Sury PHP repository for Multi-PHP Manager (IPv4-first over HTTPS)
+# Also pin unversioned Sury/Ondrej PHP metapackages (-1) so apt upgrade / version installs
+# cannot pull unrequested PHP versions (e.g., php8.4 / php8.5) automatically.
 echo "Configuring Sury PHP repository..."
-mkdir -p /usr/share/keyrings
+mkdir -p /usr/share/keyrings /etc/apt/preferences.d
+cat > /etc/apt/preferences.d/99-lite-cpanel-php <<'EOF'
+Package: php php-fpm php-cli php-cgi php-phpdbg libapache2-mod-php libphp-embed php-all-dev php-*-all-dev php-mysql php-gd php-curl php-gmp php-mbstring php-xml php-zip php-bcmath php-intl php-json php-mongodb php-imagick php-redis php-memcached php-soap php-sqlite3 php-pgsql php-ldap php-imap php-opcache php-bz2 php-readline php-pear
+Pin: origin packages.sury.org
+Pin-Priority: -1
+
+Package: php php-fpm php-cli php-cgi php-phpdbg libapache2-mod-php libphp-embed php-all-dev php-*-all-dev php-mysql php-gd php-curl php-gmp php-mbstring php-xml php-zip php-bcmath php-intl php-json php-mongodb php-imagick php-redis php-memcached php-soap php-sqlite3 php-pgsql php-ldap php-imap php-opcache php-bz2 php-readline php-pear
+Pin: release o=LP-PPA-ondrej-php
+Pin-Priority: -1
+EOF
+chmod 644 /etc/apt/preferences.d/99-lite-cpanel-php
+
 PHP_DISTRO_CODENAME=$(. /etc/os-release 2>/dev/null && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-$(lsb_release -sc 2>/dev/null)}}")
 if [ -n "$PHP_DISTRO_CODENAME" ]; then
     TMP_SURY_KEY=$(mktemp)

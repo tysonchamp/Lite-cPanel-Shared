@@ -7,6 +7,7 @@ import queue
 import shutil
 import tempfile
 import threading
+import contextlib
 import subprocess
 import urllib.request
 from domains_mgr import get_virtual_hosts
@@ -198,6 +199,41 @@ def _get_service_status(service_name):
     return 'inactive'
 
 
+def _extract_upstream_version(pkg_ver):
+    """Extract clean PHP version (e.g. '7.4.33') from a Debian/Ubuntu package version string."""
+    if not pkg_ver:
+        return ''
+    ver = pkg_ver.strip()
+    if not ver or ver == '(none)':
+        return ''
+    if ':' in ver:
+        ver = ver.split(':', 1)[1]
+    ver = ver.split('-', 1)[0].split('+', 1)[0].split('~', 1)[0]
+    return ver
+
+
+def _get_all_installed_php_dpkg_versions():
+    """Return {pkg_name: installed_deb_version} for all installed phpX.Y* packages."""
+    installed = {}
+    if not shutil.which('dpkg-query'):
+        return installed
+    try:
+        res = subprocess.run(
+            ['dpkg-query', '-W', '-f=${Package}\t${db:Status-Abbrev}\t${Version}\n', 'php[0-9]*.[0-9]*'],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=10
+        )
+        for line in res.stdout.splitlines():
+            parts = line.split('\t')
+            if len(parts) != 3:
+                continue
+            pkg, status, ver = parts[0].strip(), parts[1].strip(), parts[2].strip()
+            if status.startswith('ii') and re.fullmatch(r'php\d+\.\d+(?:-[a-z0-9.+-]+)?', pkg):
+                installed[pkg] = ver
+    except Exception:
+        pass
+    return installed
+
+
 def get_installed_php_versions():
     """Return metadata dicts for all PHP versions detected on the system."""
     versions = set()
@@ -218,6 +254,7 @@ def get_installed_php_versions():
             versions.add(m.group(1))
 
     default_ver = get_default_php_version()
+    dpkg_pkgs = _get_all_installed_php_dpkg_versions() if versions else {}
     result = []
     for ver in sorted(versions, key=_version_sort_key):
         cli_bin = f'/usr/bin/php{ver}'
@@ -233,6 +270,24 @@ def get_installed_php_versions():
         fpm_status = _get_service_status(fpm_service) if has_fpm else 'not_installed'
         socket_path = _get_fpm_socket_path(ver) if has_fpm else None
 
+        pkg_ver = (
+            dpkg_pkgs.get(f'php{ver}-fpm')
+            or dpkg_pkgs.get(f'php{ver}-cli')
+            or dpkg_pkgs.get(f'php{ver}-common')
+            or ''
+        )
+        full_ver = _extract_upstream_version(pkg_ver)
+        if not full_ver and has_cli:
+            try:
+                vr = subprocess.run(
+                    [cli_bin, '-r', 'echo PHP_VERSION;'],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=5
+                )
+                if vr.returncode == 0 and vr.stdout.strip():
+                    full_ver = vr.stdout.strip().split('-', 1)[0]
+            except Exception:
+                pass
+
         ini_files = {}
         for sapi in ('fpm', 'apache2', 'cli'):
             ini_path = f'/etc/php/{ver}/{sapi}/php.ini'
@@ -241,6 +296,8 @@ def get_installed_php_versions():
 
         result.append({
             'version': ver,
+            'full_version': full_ver or ver,
+            'pkg_version': pkg_ver,
             'has_cli': has_cli,
             'has_fpm': has_fpm,
             'fpm_service': fpm_service,
@@ -670,6 +727,21 @@ _SURY_KEYRING_PATH = '/usr/share/keyrings/deb.sury.org-keyring.gpg'
 _SURY_ASC_KEYRING_PATH = '/usr/share/keyrings/deb.sury.org-keyring.asc'
 _SURY_LIST_PATH = '/etc/apt/sources.list.d/php.list'
 
+_PHP_PREFS_PATH = '/etc/apt/preferences.d/99-lite-cpanel-php'
+_PHP_SERIES_ALL = (
+    '5.6', '7.0', '7.1', '7.2', '7.3', '7.4',
+    '8.0', '8.1', '8.2', '8.3', '8.4', '8.5', '8.6', '8.7',
+)
+_UNVERSIONED_PHP_METAPACKAGES = (
+    'php', 'php-fpm', 'php-cli', 'php-cgi', 'php-phpdbg',
+    'libapache2-mod-php', 'libphp-embed', 'php-all-dev', 'php-*-all-dev',
+    'php-mysql', 'php-gd', 'php-curl', 'php-gmp', 'php-mbstring',
+    'php-xml', 'php-zip', 'php-bcmath', 'php-intl', 'php-json',
+    'php-mongodb', 'php-imagick', 'php-redis', 'php-memcached',
+    'php-soap', 'php-sqlite3', 'php-pgsql', 'php-ldap', 'php-imap',
+    'php-opcache', 'php-bz2', 'php-readline', 'php-pear',
+)
+
 _APT_COMMON_OPTS = [
     '-o', 'DPkg::Lock::Timeout=60',
     '-o', 'Acquire::http::Timeout=25',
@@ -678,9 +750,138 @@ _APT_COMMON_OPTS = [
 ]
 
 _APT_INSTALL_OPTS = _APT_COMMON_OPTS + [
+    '--no-install-recommends',
     '-o', 'Dpkg::Options::=--force-confdef',
     '-o', 'Dpkg::Options::=--force-confold',
 ]
+
+
+def _ensure_php_metapkg_pins():
+    """
+    Pin unversioned Sury/Ondrej PHP metapackages (-1) so apt upgrade / installs
+    never pull unrelated PHP versions (such as php8.4 or php8.5) unexpectedly.
+    """
+    pkg_list = ' '.join(_UNVERSIONED_PHP_METAPACKAGES)
+    content = (
+        f"Package: {pkg_list}\n"
+        "Pin: origin packages.sury.org\n"
+        "Pin-Priority: -1\n\n"
+        f"Package: {pkg_list}\n"
+        "Pin: release o=LP-PPA-ondrej-php\n"
+        "Pin-Priority: -1\n"
+    )
+    try:
+        os.makedirs(os.path.dirname(_PHP_PREFS_PATH), mode=0o755, exist_ok=True)
+        if os.path.exists(_PHP_PREFS_PATH):
+            with open(_PHP_PREFS_PATH, 'r') as f:
+                if f.read() == content:
+                    return
+        with open(_PHP_PREFS_PATH, 'w') as f:
+            f.write(content)
+        os.chmod(_PHP_PREFS_PATH, 0o644)
+    except OSError:
+        pass
+
+
+def _get_pkg_installed_version(pkg_name):
+    """Return installed Debian version string for pkg_name, or None if not installed."""
+    if not shutil.which('dpkg-query'):
+        return None
+    try:
+        res = subprocess.run(
+            ['dpkg-query', '-W', '-f=${db:Status-Abbrev}\t${Version}\n', pkg_name],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=5
+        )
+        if res.returncode != 0:
+            return None
+        line = res.stdout.strip()
+        if '\t' in line:
+            status, ver = line.split('\t', 1)
+            if status.strip().startswith('ii') and ver.strip():
+                return ver.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _dpkg_compare_versions(ver_a, op, ver_b):
+    """Compare two Debian/Ubuntu version strings using dpkg --compare-versions."""
+    if not ver_a or not ver_b:
+        return False
+    if not shutil.which('dpkg'):
+        return ver_a != ver_b if op == 'gt' else False
+    try:
+        res = subprocess.run(
+            ['dpkg', '--compare-versions', ver_a, op, ver_b],
+            capture_output=True, stdin=subprocess.DEVNULL, timeout=5
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+@contextlib.contextmanager
+def _scoped_apt_isolation_prefs(target_version):
+    """
+    Create a temporary APT preferences file ensuring APT only installs/upgrades
+    `target_version` and cannot pull unrequested PHP series (e.g. 8.4 / 8.5).
+    Yields extra ['-o', 'Dir::Etc::preferences=...'] flags for apt-get.
+    """
+    _ensure_php_metapkg_pins()
+    installed_set = {v['version'] for v in get_installed_php_versions()}
+    blocks = []
+
+    for other in _PHP_SERIES_ALL:
+        if other == target_version:
+            continue
+        if other not in installed_set:
+            blocks.append(
+                f"Package: php{other} php{other}-* libapache2-mod-php{other} libphp{other}-embed\n"
+                "Pin: release *\n"
+                "Pin-Priority: -1\n"
+            )
+        else:
+            missing_sapis = [
+                p for p in (
+                    f'php{other}-fpm',
+                    f'libapache2-mod-php{other}',
+                    f'libphp{other}-embed',
+                    f'php{other}-cgi',
+                    f'php{other}-phpdbg',
+                )
+                if not _get_pkg_installed_version(p)
+            ]
+            if missing_sapis:
+                blocks.append(
+                    f"Package: {' '.join(missing_sapis)}\n"
+                    "Pin: release *\n"
+                    "Pin-Priority: -1\n"
+                )
+
+    pkg_list = ' '.join(_UNVERSIONED_PHP_METAPACKAGES)
+    for pin_clause in ('Pin: origin packages.sury.org', 'Pin: release o=LP-PPA-ondrej-php'):
+        blocks.append(f"Package: {pkg_list}\n{pin_clause}\nPin-Priority: -1\n")
+
+    # Ubuntu 24.04 ships php-common 2:93* which satisfies PHP <= 8.3 (>= 1:81~); keep it from
+    # upgrading to Sury's 2:101+ which Breaks old php-mongodb and drags php8.5-mongodb.
+    if _version_sort_key(target_version) < (8, 4):
+        php_common_ver = _get_pkg_installed_version('php-common')
+        if php_common_ver and _dpkg_compare_versions(php_common_ver, 'lt', '2:95~'):
+            for pin_clause in ('Pin: origin packages.sury.org', 'Pin: release o=LP-PPA-ondrej-php'):
+                blocks.append(f"Package: php-common\n{pin_clause}\nPin-Priority: 100\n")
+
+    pref_path = None
+    try:
+        with tempfile.NamedTemporaryFile('w', prefix='lite_cpanel_php_pin_', suffix='.pref', delete=False) as tf:
+            tf.write('\n'.join(blocks))
+            pref_path = tf.name
+        yield ['-o', f'Dir::Etc::preferences={pref_path}']
+    finally:
+        if pref_path and os.path.exists(pref_path):
+            try:
+                os.remove(pref_path)
+            except OSError:
+                pass
 
 
 def _non_interactive_env():
@@ -698,7 +899,7 @@ def _apt_pkg_exists(pkg_name):
         ['apt-cache', 'show', pkg_name],
         capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=15
     )
-    return res.returncode == 0 and bool(res.stdout.strip())
+    return res.returncode == 0 and 'Version:' in res.stdout
 
 
 def _detect_os_info():
@@ -947,6 +1148,7 @@ def _write_ondrej_repo_files(key_block, codename):
     with open(_ONDREJ_LIST_PATH, 'w') as f:
         f.write(f"deb [signed-by={_ONDREJ_KEYRING_PATH}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu {codename} main\n")
     os.chmod(_ONDREJ_LIST_PATH, 0o644)
+    _ensure_php_metapkg_pins()
 
 
 def import_ondrej_key_text(raw_text):
@@ -1043,6 +1245,7 @@ def _configure_sury_repo(codename):
         with open(_SURY_LIST_PATH, 'w') as f:
             f.write(f"deb [signed-by={keyring_path}] https://packages.sury.org/php/ {codename} main\n")
         os.chmod(_SURY_LIST_PATH, 0o644)
+        _ensure_php_metapkg_pins()
         return True, None
     except Exception as e:
         return False, str(e)
@@ -1286,6 +1489,47 @@ def _restore_default_php_alternatives(version):
             )
 
 
+def _stream_apt_update_with_fallback(env, start_prog=28, retry_prog=30, max_prog=40):
+    """
+    Stream `apt-get update -y` with an IPv4 fallback on failure.
+    Yields intermediate event dicts and ends with {'done': True, 'ok': bool, 'used_ipv4': bool, 'error': str}.
+    """
+    prog = start_prog
+    used_ipv4 = False
+    apt_err = ''
+    for force_v4 in (False, True):
+        if force_v4:
+            prog = max(prog, retry_prog)
+        extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+        update_cmd = ['apt-get', 'update', '-y'] + _APT_COMMON_OPTS + extra_v4
+        rc = 1
+        tail = []
+        step_timeout = 75 if not force_v4 else 180
+        try:
+            for ev, data in _run_cmd_streaming(update_cmd, env=env, timeout=step_timeout):
+                if ev == 'line':
+                    prog = min(max_prog, prog + 1)
+                    yield {'progress': prog, 'message': 'Refreshing APT package lists...', 'detail': data}
+                elif ev == 'tick':
+                    prog = min(max_prog, prog + 1)
+                    yield {'progress': prog, 'message': 'Refreshing APT package lists...'}
+                elif ev == 'done':
+                    rc, tail = data
+        except subprocess.TimeoutExpired:
+            rc = 124
+            tail = [f"apt-get update timed out after {step_timeout}s"]
+        if rc == 0:
+            used_ipv4 = force_v4
+            yield {'done': True, 'ok': True, 'used_ipv4': used_ipv4, 'error': ''}
+            return
+        apt_err = '; '.join(tail[-3:]) or f"apt-get update exited with {rc}"
+        if not force_v4:
+            prog = max(prog, retry_prog)
+            yield {'progress': prog, 'message': 'Retrying APT refresh over IPv4...', 'detail': apt_err}
+
+    yield {'done': True, 'ok': False, 'used_ipv4': False, 'error': apt_err}
+
+
 def install_php_generator(version, extensions=None):
     """Generator for live-streaming a new PHP version installation (admin-only)."""
     def emit(progress, message, error=False, success=False, detail=''):
@@ -1335,33 +1579,13 @@ def install_php_generator(version, extensions=None):
         apt_ok = False
         used_ipv4 = False
         apt_err = ''
-        for force_v4 in (False, True):
-            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
-            update_cmd = ['apt-get', 'update', '-y'] + _APT_COMMON_OPTS + extra_v4
-            prog = 30 if force_v4 else 28
-            rc = 1
-            tail = []
-            step_timeout = 75 if not force_v4 else 180
-            try:
-                for ev, data in _run_cmd_streaming(update_cmd, env=env, timeout=step_timeout):
-                    if ev == 'line':
-                        prog = min(40, prog + 1)
-                        yield emit(prog, "Refreshing APT package lists...", detail=data)
-                    elif ev == 'tick':
-                        prog = min(40, prog + 1)
-                        yield emit(prog, "Refreshing APT package lists...")
-                    elif ev == 'done':
-                        rc, tail = data
-            except subprocess.TimeoutExpired:
-                rc = 124
-                tail = [f"apt-get update timed out after {step_timeout}s"]
-            if rc == 0:
-                apt_ok = True
-                used_ipv4 = force_v4
-                break
-            apt_err = '; '.join(tail[-3:]) or f"apt-get update exited with {rc}"
-            if not force_v4:
-                yield emit(30, "Retrying APT refresh over IPv4...", detail=apt_err)
+        for upd_ev in _stream_apt_update_with_fallback(env, start_prog=28, retry_prog=30, max_prog=40):
+            if upd_ev.get('done'):
+                apt_ok = bool(upd_ev.get('ok'))
+                used_ipv4 = bool(upd_ev.get('used_ipv4'))
+                apt_err = upd_ev.get('error', '')
+            else:
+                yield emit(upd_ev['progress'], upd_ev['message'], detail=upd_ev.get('detail', ''))
 
         if not apt_ok and not _apt_pkg_exists(f'php{version}-fpm'):
             yield emit(30, f"apt-get update failed: {apt_err}", error=True)
@@ -1385,31 +1609,31 @@ def install_php_generator(version, extensions=None):
         rc = 1
         tail = []
         last_detail = ''
-        for force_v4 in install_attempts:
-            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
-            install_cmd = ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + extra_v4 + packages
-            prog = 45
-            rc = 1
-            tail = []
-            step_timeout = 300 if not force_v4 else 600
-            try:
-                for ev, data in _run_cmd_streaming(install_cmd, env=env, timeout=step_timeout):
-                    if ev == 'line':
-                        last_detail = data
-                        prog = min(84, prog + 1)
-                        yield emit(prog, f"Installing PHP {version} packages...", detail=data)
-                    elif ev == 'tick':
-                        prog = min(84, prog + 1)
-                        yield emit(prog, f"Installing PHP {version} packages...", detail=last_detail)
-                    elif ev == 'done':
-                        rc, tail = data
-            except subprocess.TimeoutExpired:
-                rc = 124
-                tail = [f"apt-get install timed out after {step_timeout}s"]
-            if rc == 0:
-                break
-            if not force_v4 and len(install_attempts) > 1:
-                yield emit(45, f"Retrying PHP {version} package install over IPv4...", detail='; '.join(tail[-2:]))
+        with _scoped_apt_isolation_prefs(version) as pin_opts:
+            for force_v4 in install_attempts:
+                extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+                install_cmd = ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + pin_opts + extra_v4 + packages
+                rc = 1
+                tail = []
+                step_timeout = 300 if not force_v4 else 600
+                try:
+                    for ev, data in _run_cmd_streaming(install_cmd, env=env, timeout=step_timeout):
+                        if ev == 'line':
+                            last_detail = data
+                            prog = min(84, prog + 1)
+                            yield emit(prog, f"Installing PHP {version} packages...", detail=data)
+                        elif ev == 'tick':
+                            prog = min(84, prog + 1)
+                            yield emit(prog, f"Installing PHP {version} packages...", detail=last_detail)
+                        elif ev == 'done':
+                            rc, tail = data
+                except subprocess.TimeoutExpired:
+                    rc = 124
+                    tail = [f"apt-get install timed out after {step_timeout}s"]
+                if rc == 0:
+                    break
+                if not force_v4 and len(install_attempts) > 1:
+                    yield emit(prog, f"Retrying PHP {version} package install over IPv4...", detail='; '.join(tail[-2:]))
 
         if rc != 0:
             err_detail = '; '.join(tail[-4:]) or f"apt-get install exited with {rc}"
@@ -1470,14 +1694,40 @@ def uninstall_php_version(version):
             subprocess.run(['a2disconf', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
 
         dpkg_res = subprocess.run(
-            ['dpkg-query', '-W', '-f=${Package}\n', f'php{version}*'],
+            [
+                'dpkg-query', '-W', '-f=${Package}\t${db:Status-Abbrev}\n',
+                f'php{version}*', f'libapache2-mod-php{version}*', f'libphp{version}-embed',
+            ],
             capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
         )
-        pkg_re = re.compile(rf'^php{re.escape(version)}(?:-[a-z0-9.+-]+)?$')
-        pkgs = [p.strip() for p in dpkg_res.stdout.splitlines() if pkg_re.fullmatch(p.strip())]
+        pkg_re = re.compile(rf'^(?:php|libapache2-mod-php|libphp){re.escape(version)}(?:-[a-z0-9.+-]+)?$')
+        pkgs = []
+        for line in dpkg_res.stdout.splitlines():
+            parts = line.split('\t')
+            pkg = parts[0].strip()
+            status = parts[1].strip() if len(parts) > 1 else 'ii'
+            if status.startswith('ii') and pkg_re.fullmatch(pkg) and pkg not in pkgs:
+                pkgs.append(pkg)
 
         if pkgs:
             env = _non_interactive_env()
+            sim = subprocess.run(
+                ['apt-get', 'purge', '-s', '-y'] + _APT_COMMON_OPTS + pkgs,
+                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=30
+            )
+            protected = {'phpmyadmin', 'apache2', 'nginx', 'mariadb-server', 'mysql-server'}
+            remv_protected = []
+            for sim_line in sim.stdout.splitlines():
+                if sim_line.startswith('Remv '):
+                    remv_pkg = sim_line.split()[1].strip()
+                    if remv_pkg in protected and remv_pkg not in remv_protected:
+                        remv_protected.append(remv_pkg)
+            if remv_protected:
+                return False, (
+                    f"Cannot safely purge PHP {version}: APT would also remove {', '.join(remv_protected)} "
+                    "(held by an unversioned PHP metapackage). Keep default PHP metapackages intact first."
+                )
+
             purge = subprocess.run(
                 ['apt-get', 'purge', '-y'] + _APT_COMMON_OPTS + pkgs,
                 capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=300
@@ -1514,24 +1764,311 @@ def install_php_extension(version, ext):
     try:
         env = _non_interactive_env()
         last_err = ''
-        for force_v4 in (False, True):
-            extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
-            try:
-                res = subprocess.run(
-                    ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + extra_v4 + [pkg],
-                    capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL,
-                    timeout=90 if not force_v4 else 180
-                )
-                if res.returncode == 0:
-                    if _get_service_status(f'php{version}-fpm') == 'active':
-                        subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
-                    return True, f"Extension {pkg} installed successfully."
-                last_err = res.stderr.strip() or res.stdout.strip() or f"apt-get exited with {res.returncode}"
-            except subprocess.TimeoutExpired:
-                last_err = f"Timed out installing {pkg}"
+        with _scoped_apt_isolation_prefs(version) as pin_opts:
+            for force_v4 in (False, True):
+                extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+                try:
+                    res = subprocess.run(
+                        ['apt-get', 'install', '-y'] + _APT_INSTALL_OPTS + pin_opts + extra_v4 + [pkg],
+                        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL,
+                        timeout=90 if not force_v4 else 180
+                    )
+                    if res.returncode == 0:
+                        if _get_service_status(f'php{version}-fpm') == 'active':
+                            subprocess.run(['systemctl', 'reload', f'php{version}-fpm'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+                        return True, f"Extension {pkg} installed successfully."
+                    last_err = res.stderr.strip() or res.stdout.strip() or f"apt-get exited with {res.returncode}"
+                except subprocess.TimeoutExpired:
+                    last_err = f"Timed out installing {pkg}"
         return False, f"Failed to install {pkg}: {last_err}"
     except Exception as e:
         return False, f"Error installing {pkg}: {str(e)}"
+
+
+def _parse_apt_cache_policy(policy_stdout):
+    """Parse `apt-cache policy` output into {pkg: {'inst': str, 'cand': str}}."""
+    parsed = {}
+    cur_pkg = None
+    for raw in policy_stdout.splitlines():
+        if raw and not raw[0].isspace() and raw.rstrip().endswith(':'):
+            cur_pkg = raw.rstrip()[:-1].strip()
+            parsed[cur_pkg] = {'inst': '', 'cand': ''}
+        elif cur_pkg:
+            s = raw.strip()
+            if s.startswith('Installed:'):
+                parsed[cur_pkg]['inst'] = s.split(':', 1)[1].strip()
+            elif s.startswith('Candidate:'):
+                parsed[cur_pkg]['cand'] = s.split(':', 1)[1].strip()
+    return parsed
+
+
+def get_php_updates_status(installed_versions=None):
+    """
+    Inspect local APT cache to report available patch/security updates per installed
+    PHP version without performing network requests.
+    """
+    if installed_versions is None:
+        installed_versions = get_installed_php_versions()
+    ver_list = [v['version'] for v in installed_versions if is_valid_php_version(v.get('version', ''))]
+    if not ver_list:
+        return {}
+
+    dpkg_pkgs = _get_all_installed_php_dpkg_versions()
+    pkgs_by_ver = {}
+    all_pkgs = []
+    for ver in ver_list:
+        ver_re = re.compile(rf'^php{re.escape(ver)}(?:-[a-z0-9.+-]+)?$')
+        vpkgs = {p: v for p, v in dpkg_pkgs.items() if ver_re.fullmatch(p)}
+        pkgs_by_ver[ver] = vpkgs
+        all_pkgs.extend(sorted(vpkgs.keys()))
+
+    policy = {}
+    if all_pkgs and shutil.which('apt-cache'):
+        try:
+            res = subprocess.run(
+                ['apt-cache', 'policy'] + all_pkgs,
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=20
+            )
+            if res.returncode == 0 and res.stdout:
+                policy = _parse_apt_cache_policy(res.stdout)
+        except Exception:
+            policy = {}
+
+    updates = {}
+    meta_by_ver = {v['version']: v for v in installed_versions}
+    for ver in ver_list:
+        vpkgs = pkgs_by_ver.get(ver, {})
+        upgradable = []
+        for pkg, inst_ver in sorted(vpkgs.items()):
+            pinfo = policy.get(pkg, {})
+            cand = pinfo.get('cand', '')
+            inst = pinfo.get('inst', '') or inst_ver
+            if not cand or cand == '(none)' or not inst or inst == '(none)':
+                continue
+            if _dpkg_compare_versions(cand, 'gt', inst):
+                upgradable.append(pkg)
+
+        core_pkg = next(
+            (p for p in (f'php{ver}-fpm', f'php{ver}-cli', f'php{ver}-common') if p in vpkgs),
+            None
+        )
+        cur_pkg_ver = vpkgs.get(core_pkg, '') if core_pkg else meta_by_ver.get(ver, {}).get('pkg_version', '')
+        cur_full = _extract_upstream_version(cur_pkg_ver) or meta_by_ver.get(ver, {}).get('full_version', ver)
+
+        upgradable_core = next(
+            (p for p in (f'php{ver}-fpm', f'php{ver}-cli', f'php{ver}-common') if p in upgradable),
+            None
+        )
+        cand_pkg_ver = cur_pkg_ver
+        cand_full = cur_full
+        update_label = ''
+        if upgradable_core:
+            cand_pkg_ver = policy.get(upgradable_core, {}).get('cand', cur_pkg_ver)
+            cand_full = _extract_upstream_version(cand_pkg_ver) or cur_full
+            if cand_full and cand_full != cur_full:
+                update_label = f"{cur_full} → {cand_full}"
+            else:
+                update_label = f"{cur_full} (patch pkg)"
+        elif upgradable:
+            cand_pkg_ver = policy.get(upgradable[0], {}).get('cand', '')
+            update_label = f"{len(upgradable)} pkg(s)"
+
+        updates[ver] = {
+            'has_update': bool(upgradable),
+            'upgradable_count': len(upgradable),
+            'upgradable_packages': upgradable,
+            'current_pkg_version': cur_pkg_ver,
+            'current_full_version': cur_full,
+            'candidate_pkg_version': cand_pkg_ver,
+            'candidate_full_version': cand_full,
+            'update_label': update_label,
+        }
+    return updates
+
+
+def check_php_updates():
+    """Refresh APT repository metadata over IPv4-safe transport and report PHP updates."""
+    try:
+        env = _non_interactive_env()
+        _ensure_php_metapkg_pins()
+        apt_ok = False
+        apt_err = ''
+        for upd_ev in _stream_apt_update_with_fallback(env, start_prog=0, retry_prog=0, max_prog=100):
+            if upd_ev.get('done'):
+                apt_ok = bool(upd_ev.get('ok'))
+                apt_err = upd_ev.get('error', '')
+        updates = get_php_updates_status()
+        if not apt_ok:
+            return False, f"Failed to refresh APT lists: {apt_err}", updates
+        avail = [(v, info) for v, info in updates.items() if info.get('has_update')]
+        if avail:
+            summary = ', '.join(
+                f"PHP {v} ({info['update_label']})" if info.get('update_label') else f"PHP {v}"
+                for v, info in avail
+            )
+            return True, f"Updates available for {len(avail)} PHP version(s): {summary}.", updates
+        return True, "All installed PHP versions are up to date.", updates
+    except Exception as e:
+        return False, f"Failed to check PHP updates: {str(e)}", {}
+
+
+def update_php_generator(version='all'):
+    """
+    Generator for live-streaming isolated `--only-upgrade` package updates for one
+    installed PHP version or 'all' installed versions (admin-only).
+    """
+    def emit(progress, message, error=False, success=False, detail=''):
+        payload = {
+            'progress': progress,
+            'message': message,
+            'error': error,
+            'success': success,
+        }
+        if detail:
+            payload['detail'] = detail
+        return json.dumps(payload) + "\n"
+
+    installed = get_installed_php_versions()
+    installed_map = {v['version']: v for v in installed}
+
+    if version == 'all':
+        target_versions = [v['version'] for v in installed]
+    elif is_valid_php_version(version) and version in installed_map:
+        target_versions = [version]
+    else:
+        yield emit(100, f"PHP {version} is not installed or is invalid.", error=True)
+        return
+
+    if not target_versions:
+        yield emit(100, "No installed PHP versions found to update.", error=True)
+        return
+
+    try:
+        env = _non_interactive_env()
+        prev_default = get_default_php_version()
+        was_fpm_active = {
+            ver: (_get_service_status(f'php{ver}-fpm') == 'active')
+            for ver in target_versions
+        }
+
+        label = "all installed PHP versions" if version == 'all' else f"PHP {version}"
+        yield emit(10, f"Checking updates for {label}...")
+
+        apt_ok = False
+        used_ipv4 = False
+        apt_err = ''
+        for upd_ev in _stream_apt_update_with_fallback(env, start_prog=15, retry_prog=22, max_prog=35):
+            if upd_ev.get('done'):
+                apt_ok = bool(upd_ev.get('ok'))
+                used_ipv4 = bool(upd_ev.get('used_ipv4'))
+                apt_err = upd_ev.get('error', '')
+            else:
+                yield emit(upd_ev['progress'], upd_ev['message'], detail=upd_ev.get('detail', ''))
+
+        target_meta = [installed_map[v] for v in target_versions]
+        updates_map = get_php_updates_status(target_meta)
+        to_update = [
+            (ver, updates_map[ver])
+            for ver in target_versions
+            if updates_map.get(ver, {}).get('has_update') and updates_map[ver].get('upgradable_packages')
+        ]
+
+        if not apt_ok and not to_update:
+            yield emit(35, f"Failed to check PHP updates: {apt_err}", error=True)
+            return
+
+        if not to_update:
+            if version == 'all':
+                yield emit(100, "All installed PHP versions are already up to date.", success=True)
+            else:
+                cur_full = installed_map[version].get('full_version', version)
+                yield emit(100, f"PHP {version} is already up to date ({cur_full}).", success=True)
+            return
+
+        yield emit(42, f"Found updates for {len(to_update)} PHP version(s)...")
+        prog = 42
+        total_targets = len(to_update)
+        updated_vers = []
+
+        for idx, (ver, uinfo) in enumerate(to_update):
+            pkgs = uinfo['upgradable_packages']
+            cap = 45 + int(40 * (idx + 1) / total_targets)
+            yield emit(prog, f"Updating PHP {ver} ({uinfo.get('update_label') or f'{len(pkgs)} pkg(s)'})...")
+
+            install_attempts = [True] if used_ipv4 else [False, True]
+            rc = 1
+            tail = []
+            last_detail = ''
+            with _scoped_apt_isolation_prefs(ver) as pin_opts:
+                for force_v4 in install_attempts:
+                    extra_v4 = ['-o', 'Acquire::ForceIPv4=true'] if force_v4 else []
+                    upgrade_cmd = (
+                        ['apt-get', 'install', '-y', '--only-upgrade']
+                        + _APT_INSTALL_OPTS
+                        + pin_opts
+                        + extra_v4
+                        + pkgs
+                    )
+                    rc = 1
+                    tail = []
+                    step_timeout = 300 if not force_v4 else 600
+                    try:
+                        for ev, data in _run_cmd_streaming(upgrade_cmd, env=env, timeout=step_timeout):
+                            if ev == 'line':
+                                last_detail = data
+                                prog = min(cap, max(prog, 45) + 1) if prog < cap else cap
+                                yield emit(prog, f"Updating PHP {ver} packages...", detail=data)
+                            elif ev == 'tick':
+                                prog = min(cap, max(prog, 45) + 1) if prog < cap else cap
+                                yield emit(prog, f"Updating PHP {ver} packages...", detail=last_detail)
+                            elif ev == 'done':
+                                rc, tail = data
+                    except subprocess.TimeoutExpired:
+                        rc = 124
+                        tail = [f"apt-get upgrade timed out after {step_timeout}s"]
+                    if rc == 0:
+                        break
+                    if not force_v4 and len(install_attempts) > 1:
+                        yield emit(prog, f"Retrying PHP {ver} update over IPv4...", detail='; '.join(tail[-2:]))
+
+            if rc != 0:
+                err_detail = '; '.join(tail[-4:]) or f"apt-get exited with {rc}"
+                yield emit(prog, f"Update failed for PHP {ver}: {err_detail}", error=True)
+                return
+            updated_vers.append(ver)
+
+        # Preserve pre-existing system default PHP symlinks
+        if prev_default and get_default_php_version() != prev_default:
+            _restore_default_php_alternatives(prev_default)
+
+        yield emit(90, "Restarting updated PHP-FPM services...")
+        for ver in updated_vers:
+            if was_fpm_active.get(ver):
+                res = subprocess.run(
+                    ['systemctl', 'restart', f'php{ver}-fpm'],
+                    capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30
+                )
+                if res.returncode != 0:
+                    yield emit(90, f"Packages updated, but failed to restart php{ver}-fpm: {res.stderr.strip()}", error=True)
+                    return
+
+        if _get_service_status('apache2') == 'active':
+            subprocess.run(['systemctl', 'reload', 'apache2'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+        if _get_service_status('nginx') == 'active':
+            subprocess.run(['systemctl', 'reload', 'nginx'], capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+
+        after_map = {v['version']: v for v in get_installed_php_versions()}
+        summary_parts = []
+        for ver, uinfo in to_update:
+            old_v = uinfo.get('current_full_version', ver)
+            new_v = after_map.get(ver, {}).get('full_version', uinfo.get('candidate_full_version', ver))
+            summary_parts.append(f"PHP {ver} ({old_v} → {new_v})" if old_v != new_v else f"PHP {ver} ({new_v})")
+
+        yield emit(100, f"Updated {', '.join(summary_parts)} successfully!", success=True)
+    except subprocess.TimeoutExpired:
+        yield emit(0, "PHP update timed out. Please check /var/log/apt/term.log and retry.", error=True)
+    except Exception as e:
+        yield emit(0, f"PHP update error: {str(e)}", error=True)
 
 
 def get_php_ini_settings(version, sapi='fpm'):
