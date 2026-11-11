@@ -5,8 +5,10 @@ import json
 import time
 import queue
 import shutil
+import tempfile
 import threading
 import subprocess
+import urllib.request
 from domains_mgr import get_virtual_hosts
 
 SUPPORTED_PHP_VERSIONS = ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
@@ -616,9 +618,37 @@ def manage_php_fpm_service(version, action):
         return False, f"Error managing {svc}: {str(e)}"
 
 
-_ONDREJ_KEY_URL = 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x14AA40EC0831756756D7F66C4F4EA0AAE5267A6C'
+_ONDREJ_KEY_FPR = '14AA40EC0831756756D7F66C4F4EA0AAE5267A6C'
+_ONDREJ_KEY_SOURCES = [
+    (
+        'Ubuntu Keyserver (HTTPS)',
+        f'https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        False,
+    ),
+    (
+        'OpenPGP Keyserver (HTTPS)',
+        f'https://keys.openpgp.org/vks/v1/by-fingerprint/{_ONDREJ_KEY_FPR}',
+        False,
+    ),
+    (
+        'MIT PGP Keyserver (HTTPS)',
+        f'https://pgp.mit.edu/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        False,
+    ),
+    (
+        'Ubuntu Keyserver (HTTP port 80)',
+        f'http://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{_ONDREJ_KEY_FPR}',
+        True,
+    ),
+]
+_ONDREJ_KEY_URL = _ONDREJ_KEY_SOURCES[0][1]
 _ONDREJ_KEYRING_PATH = '/etc/apt/keyrings/ondrej-php.asc'
 _ONDREJ_LIST_PATH = '/etc/apt/sources.list.d/ondrej-php.list'
+
+_PGP_BLOCK_RE = re.compile(
+    rb'-----BEGIN PGP PUBLIC KEY BLOCK-----\s*[\r\n]+.+?-----END PGP PUBLIC KEY BLOCK-----',
+    re.DOTALL,
+)
 
 _SURY_KEY_URL = 'https://packages.sury.org/php/apt.gpg'
 _SURY_KEYRING_PATH = '/etc/apt/keyrings/sury-php.gpg'
@@ -687,26 +717,139 @@ def _detect_os_info():
     return {'id': os_id, 'id_like': id_like, 'codename': codename}
 
 
-def _curl_fetch(url, timeout=25):
-    """Fetch URL content via curl, falling back cleanly to IPv4 if needed."""
-    last_err = ''
-    for extra in ([], ['-4']):
-        try:
-            res = subprocess.run(
+def _is_html_payload(raw_bytes):
+    """Return True if raw bytes appear to be an HTML document rather than a GPG keyring."""
+    if not raw_bytes:
+        return False
+    head = raw_bytes[:512].lower()
+    return b'<html' in head or b'<!doctype' in head
+
+
+def _extract_pgp_block(raw_bytes):
+    """Extract clean ASCII-armored PGP public key block from response bytes, or None."""
+    if not raw_bytes:
+        return None
+    match = _PGP_BLOCK_RE.search(raw_bytes)
+    if not match:
+        return None
+    block = match.group(0).replace(b'\r\n', b'\n').replace(b'\r', b'\n').strip() + b'\n'
+    if len(block) < 128:
+        return None
+    return block
+
+
+def _verify_ondrej_key(key_bytes, require_gpg=False):
+    """Verify PGP key block structure and fingerprint against Launchpad PPA signing key."""
+    if not _extract_pgp_block(key_bytes):
+        return False, "Missing valid ASCII-armored PGP public key block"
+    if not shutil.which('gpg'):
+        if require_gpg:
+            return False, "gpg binary required to verify plain HTTP key download"
+        return True, None
+    try:
+        res = subprocess.run(
+            ['gpg', '--batch', '--with-colons', '--show-keys', '-'],
+            input=key_bytes,
+            capture_output=True,
+            timeout=10,
+        )
+        if res.returncode != 0:
+            err = res.stderr.decode('utf-8', errors='replace').strip() or f"gpg exited {res.returncode}"
+            return False, f"Invalid PGP key payload: {err}"
+        out = res.stdout.decode('utf-8', errors='replace').upper()
+        for line in out.splitlines():
+            if line.startswith('FPR:') and _ONDREJ_KEY_FPR in line:
+                return True, None
+        return False, f"Key fingerprint mismatch (expected {_ONDREJ_KEY_FPR})"
+    except Exception as e:
+        if require_gpg:
+            return False, f"Failed to verify GPG key fingerprint: {str(e)}"
+        return True, None
+
+
+def _urllib_fetch(url, timeout=12):
+    """Fetch URL content via stdlib urllib.request as a curl fallback."""
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={'User-Agent': 'Lite-cPanel-MultiPHP/1.0'},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = getattr(resp, 'status', 200)
+            if status and status >= 400:
+                return False, b'', f"urllib HTTP {status}"
+            data = resp.read()
+            if data:
+                return True, data, None
+            return False, b'', "urllib returned empty response"
+    except Exception as e:
+        return False, b'', f"urllib: {str(e)}"
+
+
+def _curl_fetch(url, timeout=12):
+    """Fetch URL content via IPv4-first curl, default stack fallback, and urllib fallback."""
+    errors = []
+    if shutil.which('curl'):
+        for label, extra in (('IPv4', ['-4']), ('default', [])):
+            try:
+                res = subprocess.run(
+                    [
+                        'curl', '-fsSL', '--http1.1', '--retry', '1', '--retry-delay', '1',
+                        '--connect-timeout', '5', '--max-time', str(timeout),
+                    ] + extra + [url],
+                    capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 5
+                )
+                if res.returncode == 0 and res.stdout:
+                    return True, res.stdout, None
+                msg = res.stderr.decode('utf-8', errors='replace').strip() or f"exited with {res.returncode}"
+                errors.append(f"curl ({label}): {msg}")
+            except subprocess.TimeoutExpired:
+                errors.append(f"curl ({label}): timed out after {timeout}s")
+            except Exception as e:
+                errors.append(f"curl ({label}): {str(e)}")
+    else:
+        errors.append("curl binary not found")
+
+    ok, data, u_err = _urllib_fetch(url, timeout=min(timeout, 12))
+    if ok and data:
+        return True, data, None
+    if u_err:
+        errors.append(u_err)
+    return False, b'', '; '.join(errors)
+
+
+def _gpg_fetch_ondrej_key(timeout=15):
+    """Fetch ondrej/php key via gpg HKP port 80 inside an isolated temporary GNUPGHOME."""
+    if not shutil.which('gpg'):
+        return False, b'', "gpg HKP: gpg binary not found"
+    try:
+        with tempfile.TemporaryDirectory(prefix='cpanel-gpg-') as gpghome:
+            os.chmod(gpghome, 0o700)
+            recv = subprocess.run(
                 [
-                    'curl', '-fsSL', '--http1.1', '--retry', '2', '--retry-delay', '1',
-                    '--connect-timeout', '8', '--max-time', str(timeout)
-                ] + extra + [url],
-                capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout + 10
+                    'gpg', '--batch', '--homedir', gpghome,
+                    '--keyserver', 'hkp://keyserver.ubuntu.com:80',
+                    '--recv-keys', _ONDREJ_KEY_FPR,
+                ],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout
             )
-            if res.returncode == 0 and res.stdout:
-                return True, res.stdout, None
-            last_err = res.stderr.decode('utf-8', errors='replace').strip() or f"curl exited with {res.returncode}"
-        except subprocess.TimeoutExpired:
-            last_err = f"Timed out fetching {url}"
-        except Exception as e:
-            last_err = str(e)
-    return False, b'', last_err
+            if recv.returncode != 0:
+                msg = recv.stderr.strip() or recv.stdout.strip() or f"exited {recv.returncode}"
+                return False, b'', f"gpg HKP: {msg}"
+            exp = subprocess.run(
+                ['gpg', '--batch', '--homedir', gpghome, '--armor', '--export', _ONDREJ_KEY_FPR],
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=10
+            )
+            if exp.returncode == 0 and exp.stdout:
+                block = _extract_pgp_block(exp.stdout)
+                if block:
+                    return True, block, None
+            err = exp.stderr.decode('utf-8', errors='replace').strip() or "empty exported key"
+            return False, b'', f"gpg HKP export: {err}"
+    except subprocess.TimeoutExpired:
+        return False, b'', f"gpg HKP: timed out after {timeout}s"
+    except Exception as e:
+        return False, b'', f"gpg HKP: {str(e)}"
 
 
 def _has_valid_repo_source(os_id):
@@ -717,7 +860,10 @@ def _has_valid_repo_source(os_id):
         try:
             with open(_SURY_LIST_PATH, 'r') as f:
                 content = f.read()
-            return os.path.getsize(_SURY_KEYRING_PATH) > 0 and 'packages.sury.org' in content
+            if 'packages.sury.org' not in content or os.path.getsize(_SURY_KEYRING_PATH) == 0:
+                return False
+            with open(_SURY_KEYRING_PATH, 'rb') as kf:
+                return not _is_html_payload(kf.read())
         except Exception:
             return False
 
@@ -730,20 +876,22 @@ def _has_valid_repo_source(os_id):
                 continue
             if path.endswith('.sources') and ('uris:' not in lowered or 'signed-by:' not in lowered):
                 continue
-            if _ONDREJ_KEYRING_PATH in content and (
-                not os.path.exists(_ONDREJ_KEYRING_PATH) or os.path.getsize(_ONDREJ_KEYRING_PATH) == 0
-            ):
-                continue
+            if _ONDREJ_KEYRING_PATH in content:
+                if not os.path.exists(_ONDREJ_KEYRING_PATH):
+                    continue
+                with open(_ONDREJ_KEYRING_PATH, 'rb') as kf:
+                    if not _extract_pgp_block(kf.read()):
+                        continue
             return True
         except Exception:
             continue
     return False
 
 
-def _ensure_php_repository(env):
+def _ensure_php_repository_iter(env):
     """
-    Configure ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian) directly over HTTPS
-    without interactive prompts or keyserver HKP hangs.
+    Generator that configures ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian),
+    yielding live progress events and finishing with {'done': True, 'ok': bool, 'error': str | None}.
     """
     os_info = _detect_os_info()
     os_id = os_info['id']
@@ -751,26 +899,65 @@ def _ensure_php_repository(env):
 
     if os_id == 'debian':
         if _has_valid_repo_source('debian'):
-            return True, None
+            yield {'done': True, 'ok': True, 'error': None}
+            return
         os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
-        ok, key_bytes, err = _curl_fetch(_SURY_KEY_URL)
-        if not ok:
-            return False, f"Failed to download Sury PHP GPG key: {err}"
+        yield {'percent': 21, 'message': 'Downloading Sury PHP GPG key (packages.sury.org)...'}
+        ok, key_bytes, err = _curl_fetch(_SURY_KEY_URL, timeout=15)
+        if not ok or _is_html_payload(key_bytes):
+            detail = err or 'received invalid HTML response instead of GPG keyring'
+            yield {'done': True, 'ok': False, 'error': f"Failed to download Sury PHP GPG key: {detail}"}
+            return
         with open(_SURY_KEYRING_PATH, 'wb') as f:
             f.write(key_bytes)
         os.chmod(_SURY_KEYRING_PATH, 0o644)
         with open(_SURY_LIST_PATH, 'w') as f:
             f.write(f"deb [signed-by={_SURY_KEYRING_PATH}] https://packages.sury.org/php/ {codename} main\n")
         os.chmod(_SURY_LIST_PATH, 0o644)
-        return True, None
+        yield {'percent': 26, 'message': 'Configured Sury PHP repository.'}
+        yield {'done': True, 'ok': True, 'error': None}
+        return
 
     # Ubuntu / derivatives
     if _has_valid_repo_source('ubuntu'):
-        return True, None
+        yield {'done': True, 'ok': True, 'error': None}
+        return
 
     os.makedirs('/etc/apt/keyrings', mode=0o755, exist_ok=True)
-    ok, key_bytes, err = _curl_fetch(_ONDREJ_KEY_URL)
-    if ok and b'BEGIN PGP PUBLIC KEY BLOCK' in key_bytes:
+    attempts = []
+    key_block = None
+
+    for idx, (label, url, require_gpg) in enumerate(_ONDREJ_KEY_SOURCES):
+        pct = min(24, 21 + idx)
+        yield {'percent': pct, 'message': f"Fetching ondrej/php GPG key from {label}..."}
+        ok, raw_bytes, fetch_err = _curl_fetch(url, timeout=12)
+        if not ok:
+            attempts.append(f"{label}: {fetch_err}")
+            continue
+        candidate = _extract_pgp_block(raw_bytes)
+        if not candidate:
+            attempts.append(f"{label}: response did not contain a valid PGP public key block")
+            continue
+        v_ok, v_err = _verify_ondrej_key(candidate, require_gpg=require_gpg)
+        if not v_ok:
+            attempts.append(f"{label}: {v_err}")
+            continue
+        key_block = candidate
+        break
+
+    if key_block is None:
+        yield {'percent': 25, 'message': 'Trying gpg HKP fallback (keyserver.ubuntu.com:80)...'}
+        g_ok, g_bytes, g_err = _gpg_fetch_ondrej_key(timeout=15)
+        if g_ok and g_bytes:
+            v_ok, v_err = _verify_ondrej_key(g_bytes, require_gpg=False)
+            if v_ok:
+                key_block = g_bytes
+            else:
+                attempts.append(f"gpg HKP: {v_err}")
+        else:
+            attempts.append(g_err)
+
+    if key_block is not None:
         # Remove any broken/partial ondrej repo files left by interrupted runs
         for stale in glob.glob('/etc/apt/sources.list.d/*ondrej*php*'):
             try:
@@ -778,29 +965,50 @@ def _ensure_php_repository(env):
             except OSError:
                 pass
         with open(_ONDREJ_KEYRING_PATH, 'wb') as f:
-            f.write(key_bytes)
+            f.write(key_block)
         os.chmod(_ONDREJ_KEYRING_PATH, 0o644)
         with open(_ONDREJ_LIST_PATH, 'w') as f:
             f.write(f"deb [signed-by={_ONDREJ_KEYRING_PATH}] https://ppa.launchpadcontent.net/ondrej/php/ubuntu {codename} main\n")
         os.chmod(_ONDREJ_LIST_PATH, 0o644)
-        return True, None
+        yield {'percent': 26, 'message': 'Configured ondrej/php repository.'}
+        yield {'done': True, 'ok': True, 'error': None}
+        return
 
-    # Fallback: non-interactive add-apt-repository with --no-update and strict timeout
+    # Fallback: non-interactive add-apt-repository with --no-update and strict 30s timeout
     if shutil.which('add-apt-repository'):
+        yield {'percent': 25, 'message': 'Trying add-apt-repository fallback for ondrej/php...'}
         try:
             res = subprocess.run(
                 ['add-apt-repository', '-y', '--no-update', 'ppa:ondrej/php'],
-                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=90
+                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=30
             )
             if res.returncode == 0:
-                return True, None
-            err = res.stderr.strip() or res.stdout.strip() or err
+                yield {'percent': 26, 'message': 'Configured ondrej/php repository.'}
+                yield {'done': True, 'ok': True, 'error': None}
+                return
+            msg = res.stderr.strip() or res.stdout.strip() or f"exited {res.returncode}"
+            attempts.append(f"add-apt-repository: {msg}")
         except subprocess.TimeoutExpired:
-            err = "add-apt-repository timed out after 90s"
+            attempts.append("add-apt-repository: timed out after 30s")
         except Exception as e:
-            err = str(e)
+            attempts.append(f"add-apt-repository: {str(e)}")
+    else:
+        attempts.append("add-apt-repository: binary not found")
 
-    return False, f"Failed to configure ondrej/php repository: {err}"
+    detail = ' | '.join(attempts) if attempts else 'Unknown error'
+    yield {'done': True, 'ok': False, 'error': f"Failed to configure ondrej/php repository: {detail}"}
+
+
+def _ensure_php_repository(env):
+    """
+    Configure ondrej/php PPA (Ubuntu) or Sury PHP repo (Debian) directly over HTTPS
+    without interactive prompts or keyserver HKP hangs.
+    """
+    last = {'ok': False, 'error': 'Unknown repository configuration error'}
+    for event in _ensure_php_repository_iter(env):
+        if event.get('done'):
+            last = event
+    return bool(last.get('ok')), last.get('error')
 
 
 def _run_cmd_streaming(cmd, env=None, timeout=600):
@@ -920,9 +1128,16 @@ def install_php_generator(version, extensions=None):
 
         if not _apt_pkg_exists(f'php{version}-fpm'):
             yield emit(20, "Configuring PHP repository (ondrej/php / Sury)...")
-            ok, err = _ensure_php_repository(env)
-            if not ok:
-                yield emit(20, err, error=True)
+            repo_ok = False
+            repo_err = "Unknown repository configuration error"
+            for event in _ensure_php_repository_iter(env):
+                if event.get('done'):
+                    repo_ok = bool(event.get('ok'))
+                    repo_err = event.get('error')
+                else:
+                    yield emit(event.get('percent', 20), event.get('message', ''))
+            if not repo_ok:
+                yield emit(20, repo_err, error=True)
                 return
 
         yield emit(28, "Refreshing APT package lists...")
